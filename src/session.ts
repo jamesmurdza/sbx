@@ -11,7 +11,7 @@ import type { Sandbox } from '@daytonaio/sdk';
 import { TMUX_CONF_PATH, TMUX_SESSION, TMUX_STATUS_FILE } from './config.js';
 import { ensureTmux, sandboxHome, writeFileAbs } from './sandbox-ops.js';
 import { tmuxConf, type BarInfo } from './tui/tmux.js';
-import { select, confirm } from './tui/prompt.js';
+import { overlayMenu } from './tui/overlay.js';
 
 const ESC = '\x1b';
 /** Ctrl-\ (FS, 0x1c) — the key that opens the teleport session menu. */
@@ -116,17 +116,19 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     await pty.resize(c, r).catch(() => {});
   };
 
-  /** Shows the session menu and returns the action to take, or null to resume. */
+  /** Shows the centered session menu and returns the action, or null to resume. */
   const openMenu = async (): Promise<AttachOutcome | null> => {
-    process.stdout.write(`${ESC}[2J${ESC}[3J${ESC}[H`);
-    const choice = await select('teleport — session menu', [
+    const choice = await overlayMenu('teleport — session menu', [
       { label: 'Detach — leave it running', value: 'detached' as const },
       { label: 'Stop — keep, restart later', value: 'stopped' as const },
       { label: 'Delete — destroy this sandbox', value: 'deleted' as const },
       { label: 'Cancel — resume session', value: 'cancel' as const },
     ]);
     if (choice === 'deleted') {
-      const ok = await confirm('Delete this sandbox? This is irreversible.', false);
+      const ok = await overlayMenu('Delete this sandbox? (irreversible)', [
+        { label: 'No — go back', value: false },
+        { label: 'Yes, delete it', value: true },
+      ]);
       return ok ? 'deleted' : null;
     }
     if (choice === 'detached' || choice === 'stopped') return choice;
