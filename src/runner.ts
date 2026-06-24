@@ -59,18 +59,25 @@ export async function startNew(opts: StartOptions): Promise<void> {
   }
 
   // Choose credentials (modal) up front; applied after the sandbox exists.
+  // Escape (null) quits; the "Neither" option ('none') proceeds without creds.
   const agent = knownAgent(opts.command);
   const sources = agent ? await discoverSources(agent) : [];
-  let chosen: (typeof sources)[number] | null | undefined;
+  type CredChoice = (typeof sources)[number] | 'none';
+  let chosen: (typeof sources)[number] | null = null;
   if (sources.length > 0) {
-    chosen = await overlayMenu(
+    const picked = await overlayMenu<CredChoice>(
       `Import credentials for ${opts.command}?`,
       [
-        ...sources.map((s) => ({ label: s.label, detail: s.detail, value: s })),
-        { label: 'Neither — start without importing', value: null },
+        ...sources.map((s) => ({ label: s.label, detail: s.detail, value: s as CredChoice })),
+        { label: 'Neither — start without importing', value: 'none' as CredChoice },
       ],
       { fullscreen: true },
     );
+    if (picked === null) {
+      log('cancelled.');
+      return;
+    }
+    chosen = picked === 'none' ? null : picked;
   }
 
   log(`creating sandbox on the background-agents snapshot…`);
