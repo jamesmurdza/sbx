@@ -53,7 +53,9 @@ teleport help                  Show help
 5. **Attach.** The agent runs inside a `tmux` session in the sandbox and is
    streamed over a PTY. tmux draws the bottom **status bar** natively (sandbox id,
    agent, repo, branch, push status), so it never corrupts the agent's UI. Press
-   **Ctrl-\\** to detach; the agent keeps running. Reconnect with `teleport`.
+   **Ctrl-\\** at any time to open the **session menu** — Detach (leave running),
+   Stop (keep, restart later), Delete (destroy, with confirm), or Cancel. All
+   other keys (including Esc) pass straight through to the agent.
 
 ### Detach & reconnect
 

@@ -18,9 +18,10 @@ test('tmuxConf sets terminal capabilities for colour/unicode', () => {
   assert.match(conf, /terminal-overrides .*Tc/);
 });
 
-test('tmuxConf binds Ctrl-\\ to detach', () => {
+test('tmuxConf does NOT bind Ctrl-\\ (teleport intercepts it locally)', () => {
   const conf = tmuxConf({ shortId: 'x', agent: 'claude' });
-  assert.match(conf, /bind-key -n C-\\\\ detach-client/);
+  assert.ok(!/bind-key -n C-\\/.test(conf), 'Ctrl-\\ must not be bound in tmux');
+  assert.match(conf, /Ctrl-\\\\ menu/, 'status hint advertises the menu');
 });
 
 test('writeStatusCommand escapes single quotes safely', () => {

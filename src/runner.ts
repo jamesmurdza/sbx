@@ -176,10 +176,20 @@ async function runInteractive(
 ): Promise<void> {
   const outcome = await attach(sandbox, { command, cwd, env, bar });
   autopush?.stop();
-  if (outcome === 'detached') {
-    log(`detached. Reconnect with \`teleport\` (sandbox ${sandbox.id} keeps running, auto-stops when idle).`);
-  } else {
-    log(`session ended. Remove the sandbox with \`teleport rm ${sandbox.id}\`.`);
+  switch (outcome) {
+    case 'detached':
+      log(`detached. Reconnect with \`teleport\` (sandbox ${sandbox.id} keeps running, auto-stops when idle).`);
+      break;
+    case 'stopped':
+      await sandbox.stop().catch((e) => log(`failed to stop: ${e instanceof Error ? e.message : e}`));
+      log(`stopped ${sandbox.id}. Reconnect with \`teleport\` to restart it.`);
+      break;
+    case 'deleted':
+      await sandbox.delete().catch((e) => log(`failed to delete: ${e instanceof Error ? e.message : e}`));
+      log(`deleted ${sandbox.id}.`);
+      break;
+    default:
+      log(`session ended. Remove the sandbox with \`teleport rm ${sandbox.id}\`.`);
   }
 }
 

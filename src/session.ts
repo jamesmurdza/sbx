@@ -1,17 +1,21 @@
 /**
  * Interactive session lifecycle. The agent runs inside a tmux session in the
- * sandbox; tmux draws the status bar natively. Locally we are a dumb PTY
- * passthrough: stdin -> sandbox, sandbox -> stdout, plus resize forwarding.
+ * sandbox; tmux draws the status bar natively. Locally we are a PTY passthrough:
+ * stdin -> sandbox, sandbox -> stdout, plus resize forwarding.
  *
- * tmux gives us persistence for free: detaching (Ctrl-\, bound to detach-client)
- * leaves the session running; reconnecting re-attaches the live agent. After an
- * auto-stop + restart the in-memory tmux server is gone, so `new-session -A`
- * recreates the session and relaunches the agent — the desired behaviour.
+ * Pressing Ctrl-\ does NOT go to the agent — teleport intercepts it locally and
+ * opens a session menu (Detach / Stop / Delete / Cancel). Detach leaves tmux
+ * running; Stop/Delete are performed by the caller after the attach returns.
  */
 import type { Sandbox } from '@daytonaio/sdk';
 import { TMUX_CONF_PATH, TMUX_SESSION, TMUX_STATUS_FILE } from './config.js';
 import { ensureTmux, writeFileAbs } from './sandbox-ops.js';
 import { tmuxConf, type BarInfo } from './tui/tmux.js';
+import { select, confirm } from './tui/prompt.js';
+
+const ESC = '\x1b';
+/** Ctrl-\ (FS, 0x1c) — the key that opens the teleport session menu. */
+const MENU_KEY = 0x1c;
 
 export interface AttachOptions {
   /** Command to run under tmux when the session does not already exist. */
@@ -24,7 +28,16 @@ export interface AttachOptions {
   bar: BarInfo;
 }
 
-export type AttachOutcome = 'detached' | 'ended';
+/**
+ * How an attach ended. 'detached'/'ended' need no further action; 'stopped' and
+ * 'deleted' tell the caller to stop or delete the sandbox.
+ */
+export type AttachOutcome = 'detached' | 'ended' | 'stopped' | 'deleted';
+
+/** True when a stdin chunk is exactly the menu trigger (Ctrl-\). */
+export function isMenuTrigger(chunk: Buffer): boolean {
+  return chunk.length === 1 && chunk[0] === MENU_KEY;
+}
 
 /** Single-quotes a string for safe use in a POSIX shell command. */
 function shquote(s: string): string {
@@ -55,6 +68,10 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     ...opts.env,
   };
 
+  // While the menu is open we suppress agent output (it would scribble over the
+  // menu) and force a full tmux repaint when we resume.
+  let menuOpen = false;
+
   const pty = await sandbox.process.createPty({
     id: sessionId,
     cwd: opts.cwd,
@@ -62,7 +79,7 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     cols,
     rows,
     onData: (data: Uint8Array) => {
-      process.stdout.write(Buffer.from(data));
+      if (!menuOpen) process.stdout.write(Buffer.from(data));
     },
   });
 
@@ -78,15 +95,74 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     `${shquote(opts.command)}\n`;
   await pty.sendInput(cmd);
 
-  // Local terminal: raw passthrough + resize forwarding.
   const stdin = process.stdin;
   const wasRaw = stdin.isRaw ?? false;
   if (stdin.setRawMode) stdin.setRawMode(true);
   stdin.resume();
 
-  const onStdin = (chunk: Buffer) => void pty.sendInput(chunk);
+  // The action requested via the menu (stop/delete/detach), if any.
+  let pendingAction: AttachOutcome | null = null;
+
+  /** Forces tmux to fully repaint the screen (after the menu closes). */
+  const forceRepaint = async () => {
+    const c = process.stdout.columns ?? 80;
+    const r = process.stdout.rows ?? 24;
+    process.stdout.write(`${ESC}[2J${ESC}[3J${ESC}[H`);
+    await pty.resize(c, Math.max(1, r - 1)).catch(() => {});
+    await new Promise((res) => setTimeout(res, 40));
+    await pty.resize(c, r).catch(() => {});
+  };
+
+  /** Shows the session menu and returns the action to take, or null to resume. */
+  const openMenu = async (): Promise<AttachOutcome | null> => {
+    process.stdout.write(`${ESC}[2J${ESC}[3J${ESC}[H`);
+    const choice = await select('teleport — session menu', [
+      { label: 'Detach — leave it running', value: 'detached' as const },
+      { label: 'Stop — keep, restart later', value: 'stopped' as const },
+      { label: 'Delete — destroy this sandbox', value: 'deleted' as const },
+      { label: 'Cancel — resume session', value: 'cancel' as const },
+    ]);
+    if (choice === 'deleted') {
+      const ok = await confirm('Delete this sandbox? This is irreversible.', false);
+      return ok ? 'deleted' : null;
+    }
+    if (choice === 'detached' || choice === 'stopped') return choice;
+    return null;
+  };
+
+  const onStdin = (chunk: Buffer) => {
+    if (menuOpen) return;
+    if (isMenuTrigger(chunk)) {
+      void handleMenu();
+      return;
+    }
+    void pty.sendInput(chunk);
+  };
+
+  const handleMenu = async () => {
+    if (menuOpen) return;
+    menuOpen = true;
+    stdin.off('data', onStdin); // let select() own stdin while the menu is up
+    let action: AttachOutcome | null = null;
+    try {
+      action = await openMenu();
+    } catch {
+      action = null;
+    }
+    menuOpen = false;
+    stdin.on('data', onStdin);
+    stdin.resume();
+    if (action) {
+      pendingAction = action;
+      // Detach the client so pty.wait() resolves; the caller performs stop/delete.
+      await sandbox.process.executeCommand(`tmux detach-client -s ${TMUX_SESSION}`).catch(() => {});
+    } else {
+      await forceRepaint();
+    }
+  };
+
   const onResize = () => {
-    void pty.resize(process.stdout.columns ?? 80, process.stdout.rows ?? 24);
+    if (!menuOpen) void pty.resize(process.stdout.columns ?? 80, process.stdout.rows ?? 24);
   };
   stdin.on('data', onStdin);
   process.stdout.on('resize', onResize);
@@ -98,11 +174,13 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     process.stdout.off('resize', onResize);
     if (stdin.setRawMode) stdin.setRawMode(wasRaw);
     stdin.pause();
-    process.stdout.write('\x1b[?25h'); // ensure cursor visible
+    process.stdout.write(`${ESC}[?25h`); // ensure cursor visible
     await pty.disconnect().catch(() => {});
   }
 
-  // Detached if the tmux session still exists; otherwise the agent ended.
+  if (pendingAction) return pendingAction;
+
+  // No explicit action: detached if the tmux session still exists, else ended.
   const alive = await sandbox.process
     .executeCommand(`tmux has-session -t ${TMUX_SESSION} 2>/dev/null && echo alive || true`)
     .then((r) => (r.result ?? '').includes('alive'))

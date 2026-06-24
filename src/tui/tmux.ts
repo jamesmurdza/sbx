@@ -26,7 +26,7 @@ export function tmuxConf(info: BarInfo): string {
     info.repo ? esc(info.repo) : '',
     info.branch ? `↟ ${esc(info.branch)}` : '',
     `#(cat ${TMUX_STATUS_FILE} 2>/dev/null)`,
-    'Ctrl-\\\\ detach',
+    'Ctrl-\\\\ menu',
   ].filter(Boolean);
   const right = ' ' + rightParts.join('  ·  ') + ' ';
 
@@ -47,8 +47,8 @@ export function tmuxConf(info: BarInfo): string {
     'set -g window-status-current-format ""',
     'set -g window-status-format ""',
     'set -g destroy-unattached off',
-    // Detach with Ctrl-\ (no prefix needed), matching the documented UX.
-    'bind-key -n C-\\\\ detach-client',
+    // Ctrl-\ is intentionally NOT bound here: teleport intercepts it locally to
+    // open its session menu (Detach / Stop / Delete / Cancel).
     '',
   ].join('\n');
 }
