@@ -2,9 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decodeKey } from '../src/tui/prompt.ts';
 
-test('decodes arrow keys', () => {
+test('decodes arrow keys (normal cursor mode)', () => {
   assert.equal(decodeKey(Buffer.from('\x1b[A')), 'up');
   assert.equal(decodeKey(Buffer.from('\x1b[B')), 'down');
+});
+
+test('decodes arrow keys (application cursor mode, ESC O A/B)', () => {
+  assert.equal(decodeKey(Buffer.from('\x1bOA')), 'up');
+  assert.equal(decodeKey(Buffer.from('\x1bOB')), 'down');
 });
 
 test('decodes vim-style j/k', () => {

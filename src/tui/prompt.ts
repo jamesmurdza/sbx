@@ -17,8 +17,9 @@ export type Key = 'up' | 'down' | 'enter' | 'cancel' | 'other';
 
 /** Decodes a raw stdin chunk into a logical key. Exported for testing. */
 export function decodeKey(data: Buffer): Key {
-  // Arrow keys: ESC [ A/B
-  if (data.length >= 3 && data[0] === 0x1b && data[1] === 0x5b) {
+  // Arrow keys arrive as ESC [ A/B (normal) or ESC O A/B (application cursor
+  // mode, which full-screen apps like Claude/tmux enable). Handle both.
+  if (data.length >= 3 && data[0] === 0x1b && (data[1] === 0x5b || data[1] === 0x4f)) {
     if (data[2] === 0x41) return 'up';
     if (data[2] === 0x42) return 'down';
     return 'other';
