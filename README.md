@@ -26,7 +26,7 @@ Requires Node ≥ 20.
 
 ```
 teleport [--safe] <command> [args...]  Create (or reconnect to) a sandbox and run <command>
-teleport                       List open sessions and reconnect to one
+teleport                       List open sessions and reconnect (Ctrl-D deletes)
 teleport ls                    List open sessions (non-interactive)
 teleport stop <id>             Stop a sandbox (it can be restarted on reconnect)
 teleport rm <id>               Delete a sandbox

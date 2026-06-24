@@ -28,6 +28,10 @@ test('decodes cancel keys (Ctrl-C, Esc, q)', () => {
   assert.equal(decodeKey(Buffer.from('q')), 'cancel');
 });
 
+test('decodes Ctrl-D as delete', () => {
+  assert.equal(decodeKey(Buffer.from([0x04])), 'delete');
+});
+
 test('unknown input is other', () => {
   assert.equal(decodeKey(Buffer.from('z')), 'other');
   assert.equal(decodeKey(Buffer.from('\x1b[C')), 'other'); // right arrow

@@ -20,9 +20,15 @@ export interface OverlayItem<T> {
   value: T;
 }
 
-export interface OverlayOptions {
+export interface OverlayOptions<T = unknown> {
   /** Use the alternate screen so the box shows on a clean, restorable background. */
   fullscreen?: boolean;
+  /**
+   * When set, Ctrl-D on the highlighted item invokes this handler. Returning
+   * true removes the item from the list and keeps the menu open (used by the
+   * session picker to delete a sandbox in place).
+   */
+  onDelete?: (item: OverlayItem<T>, index: number) => Promise<boolean>;
 }
 
 /** Approximate display width (treats each code point as one column). */
@@ -68,19 +74,22 @@ export function computeBox(
 export async function overlayMenu<T>(
   title: string,
   items: OverlayItem<T>[],
-  opts: OverlayOptions = {},
+  opts: OverlayOptions<T> = {},
 ): Promise<T | null> {
   const stdin = process.stdin;
   if (items.length === 0) return null;
   if (!stdin.isTTY || !stdin.setRawMode) return null;
 
-  const hint = '↑/↓ move · Enter select · Esc cancel';
+  const list = items.slice(); // mutable copy so onDelete can remove items
+  const baseHint = '↑/↓ move · Enter select · Esc cancel';
+  let hint = opts.onDelete ? `${baseHint} · Ctrl-D delete` : baseHint;
   let index = 0;
+  let busy = false;
 
   const draw = () => {
     const cols = process.stdout.columns ?? 80;
     const rows = process.stdout.rows ?? 24;
-    const widths = items.map((it) => width(it.label) + (it.detail ? width(it.detail) + 2 : 0));
+    const widths = list.map((it) => width(it.label) + (it.detail ? width(it.detail) + 2 : 0));
     const g = computeBox(title, widths, cols, rows, hint);
     const at = (r: number, c: number) => `${ESC}[${r};${c}H`;
     const lines: string[] = [];
@@ -92,7 +101,7 @@ export async function overlayMenu<T>(
     );
 
     // Item rows (label + optional dim detail), truncated to fit.
-    items.forEach((it, i) => {
+    list.forEach((it, i) => {
       const selected = i === index;
       const marker = selected ? '❯' : ' ';
       const text = truncate(`${marker} ${it.label}`, g.innerWidth - 1);
@@ -135,25 +144,54 @@ export async function overlayMenu<T>(
       resolve(result);
     };
     const onData = (data: Buffer) => {
+      if (busy) return;
       switch (decodeKey(data)) {
         case 'up':
-          index = (index - 1 + items.length) % items.length;
+          index = (index - 1 + list.length) % list.length;
           draw();
           break;
         case 'down':
-          index = (index + 1) % items.length;
+          index = (index + 1) % list.length;
           draw();
           break;
         case 'enter':
-          cleanup(items[index].value);
+          cleanup(list[index].value);
           break;
         case 'cancel':
           cleanup(null);
+          break;
+        case 'delete':
+          if (opts.onDelete) void handleDelete();
           break;
         default:
           break;
       }
     };
+
+    const handleDelete = async () => {
+      busy = true;
+      const savedHint = hint;
+      hint = 'deleting…';
+      draw();
+      let removed = false;
+      try {
+        removed = await opts.onDelete!(list[index], index);
+      } catch {
+        removed = false;
+      }
+      hint = savedHint;
+      if (removed) {
+        list.splice(index, 1);
+        if (list.length === 0) {
+          cleanup(null);
+          return;
+        }
+        if (index >= list.length) index = list.length - 1;
+      }
+      busy = false;
+      draw();
+    };
+
     stdin.on('data', onData);
   });
 }

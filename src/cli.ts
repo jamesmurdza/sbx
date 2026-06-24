@@ -56,8 +56,8 @@ async function pickerCommand(): Promise<number> {
     return 0;
   }
 
-  const choice = await overlayMenu(
-    'Open sessions — reconnect to one:',
+  const choice = await overlayMenu<Session | 'new' | null>(
+    'Open sessions — reconnect (Ctrl-D deletes):',
     [
       ...sessions.map((s) => ({
         label: formatSession(s),
@@ -65,7 +65,19 @@ async function pickerCommand(): Promise<number> {
       })),
       { label: 'Start a new session here', value: 'new' as const },
     ],
-    { fullscreen: true },
+    {
+      fullscreen: true,
+      onDelete: async (item) => {
+        const s = item.value;
+        if (!s || s === 'new') return false; // only real sessions are deletable
+        try {
+          await s.sandbox.delete();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    },
   );
 
   if (!choice) return 0;

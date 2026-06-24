@@ -3,7 +3,7 @@
  * chunks into logical keys, handling both normal and application cursor modes.
  */
 
-export type Key = 'up' | 'down' | 'enter' | 'cancel' | 'other';
+export type Key = 'up' | 'down' | 'enter' | 'cancel' | 'delete' | 'other';
 
 /** Decodes a raw stdin chunk into a logical key. */
 export function decodeKey(data: Buffer): Key {
@@ -18,6 +18,7 @@ export function decodeKey(data: Buffer): Key {
     const b = data[0];
     if (b === 0x0d || b === 0x0a) return 'enter';
     if (b === 0x03 || b === 0x1b || b === 0x71) return 'cancel'; // Ctrl-C, Esc, q
+    if (b === 0x04) return 'delete'; // Ctrl-D
     if (b === 0x6b) return 'up'; // k
     if (b === 0x6a) return 'down'; // j
   }
