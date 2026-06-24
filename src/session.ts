@@ -57,9 +57,10 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
   const sessionId = `teleport-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
   // A UTF-8 locale + the real TERM are essential for tmux to render wide/Unicode
-  // characters (box-drawing, emoji) and accept multibyte input correctly.
-  const localeLang =
-    process.env.LANG && /utf-?8/i.test(process.env.LANG) ? process.env.LANG : 'C.UTF-8';
+  // characters (box-drawing, emoji) and accept multibyte input correctly. Use
+  // C.UTF-8 (always present in glibc) rather than forwarding the host locale,
+  // which the sandbox may not have generated (causing setlocale warnings).
+  const localeLang = 'C.UTF-8';
   const envs: Record<string, string> = {
     // Pin HOME to the dir we wrote credentials into, so the agent reads them
     // from the same place even if the interactive shell would default elsewhere.
