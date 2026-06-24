@@ -124,14 +124,7 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
       { label: 'Delete — destroy this sandbox', value: 'deleted' as const },
       { label: 'Cancel — resume session', value: 'cancel' as const },
     ]);
-    if (choice === 'deleted') {
-      const ok = await overlayMenu('Delete this sandbox? (irreversible)', [
-        { label: 'No — go back', value: false },
-        { label: 'Yes, delete it', value: true },
-      ]);
-      return ok ? 'deleted' : null;
-    }
-    if (choice === 'detached' || choice === 'stopped') return choice;
+    if (choice === 'detached' || choice === 'stopped' || choice === 'deleted') return choice;
     return null;
   };
 

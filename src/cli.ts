@@ -6,7 +6,7 @@ import { TeleportError, getSession, listSessions, type Session } from './daytona
 import { startNew, reconnect } from './runner.js';
 import { runDoctor } from './doctor.js';
 import { inspectLocalRepo } from './local-git.js';
-import { overlayMenu, overlayConfirm } from './tui/overlay.js';
+import { overlayMenu } from './tui/overlay.js';
 
 function out(msg: string): void {
   process.stdout.write(msg + '\n');
@@ -85,10 +85,6 @@ async function stopCommand(id: string): Promise<number> {
 }
 
 async function rmCommand(id: string): Promise<number> {
-  if (!(await overlayConfirm(`Delete sandbox ${id}? This is irreversible.`, { fullscreen: true }))) {
-    out('Cancelled.');
-    return 0;
-  }
   const s = await getSession(id);
   await s.sandbox.delete();
   out(`Deleted ${id}.`);
