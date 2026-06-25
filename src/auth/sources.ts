@@ -116,7 +116,7 @@ export async function discoverSources(agent: AgentDef): Promise<DiscoveredSource
       sources.push({
         kind: 'keychain',
         label: 'macOS Keychain',
-        detail: agent.keychainService,
+        detail: '',
         payload: { file: { sandboxRelPath: agent.sandboxCredFile, content: secret }, companions },
       });
     }
