@@ -152,7 +152,35 @@ async function dispatch(cmd: Command): Promise<number> {
   }
 }
 
+/**
+ * Sequence that returns the terminal to a sane state: mouse reporting off,
+ * autowrap on, cursor visible, and back out of the alternate screen. The
+ * compositor normally does this on teardown, but if anything throws mid-session
+ * we must still run it — otherwise the user is left with a corrupted terminal
+ * (stuck in alt-screen with mouse escapes leaking, as `^[[<64;…M`).
+ */
+const TERM_RESET = '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?7h\x1b[?25h\x1b[?1049l';
+
+function restoreTerminal(): void {
+  try {
+    if (process.stdout.isTTY) process.stdout.write(TERM_RESET);
+    if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(false);
+  } catch {
+    /* best effort */
+  }
+}
+
+/** Last-resort handler: restore the terminal, print a clean error, exit. */
+function onFatal(err: unknown): void {
+  restoreTerminal();
+  const msg = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`\nteleport: ${msg}\n`);
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
+  process.on('uncaughtException', onFatal);
+  process.on('unhandledRejection', onFatal);
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.type === 'error') {
     process.stderr.write(parsed.message + '\n\n' + USAGE);

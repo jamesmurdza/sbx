@@ -157,13 +157,16 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
   };
 
   // Performs a stop/delete on another sandbox, then refreshes the sidebar list.
+  // Errors (e.g. "Sandbox state change in progress") are shown in the status bar
+  // rather than crashing the process.
   const inlineAction = (kind: 'stop' | 'delete', id: string) => {
     void (async () => {
       try {
         if (kind === 'stop') await opts.stopSandbox?.(id);
         else await opts.deleteSandbox?.(id);
-      } catch {
-        /* surfaced via the refreshed list */
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        compositor.setLiveStatus(`✗ ${kind} failed: ${msg.replace(/^"|"$/g, '')}`);
       }
       await refresh();
     })();
@@ -175,7 +178,9 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     rows,
     bar: opts.bar,
     write: (d) => process.stdout.write(d),
-    sendInput: (d) => void pty.sendInput(d),
+    // Ignore send failures (e.g. a brief disconnect) — they must not crash the
+    // process via an unhandled rejection.
+    sendInput: (d) => void pty.sendInput(d).catch(() => {}),
     onAgentSize: (c2, r2) => void pty.resize(c2, r2).catch(() => {}),
     onSidebarSelect: (item) => {
       // Selecting the current sandbox just closes the sidebar; picking any other
