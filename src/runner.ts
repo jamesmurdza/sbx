@@ -42,6 +42,8 @@ export interface StartOptions {
 /** Holds the sandbox id chosen from the sidebar, read by the caller on 'switch'. */
 export interface SwitchRef {
   id?: string;
+  /** Keep the sidebar open after reconnecting (e.g. a delete/stop hand-off). */
+  openSidebar?: boolean;
 }
 
 /** Returns the live sandbox list as sidebar items, marking the attached one.
@@ -228,7 +230,11 @@ async function prepareClaudeConfig(
 }
 
 /** Full flow for reconnecting to an existing sandbox. */
-export async function reconnect(session: Session, switchRef: SwitchRef = {}): Promise<AttachOutcome> {
+export async function reconnect(
+  session: Session,
+  switchRef: SwitchRef = {},
+  openSidebar = false,
+): Promise<AttachOutcome> {
   log(`reconnecting to ${session.id} (${session.state})…`);
   await ensureStarted(session.sandbox);
 
@@ -265,7 +271,7 @@ export async function reconnect(session: Session, switchRef: SwitchRef = {}): Pr
     }
   }
 
-  return runInteractive(session.sandbox, session.command, cwdInSandbox, env, bar, status, switchRef, autopush);
+  return runInteractive(session.sandbox, session.command, cwdInSandbox, env, bar, status, switchRef, autopush, openSidebar);
 }
 
 async function runInteractive(
@@ -277,6 +283,7 @@ async function runInteractive(
   status: StatusBridge,
   switchRef: SwitchRef,
   autopush?: AutoPush,
+  openSidebar = false,
 ): Promise<AttachOutcome> {
   const outcome = await attach(sandbox, {
     command,
@@ -292,6 +299,7 @@ async function runInteractive(
     deleteSandbox: async (id) => {
       await (await getSession(id)).sandbox.delete();
     },
+    openSidebarOnStart: openSidebar,
   });
   autopush?.stop();
   switch (outcome) {

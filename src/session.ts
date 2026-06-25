@@ -47,11 +47,13 @@ export interface AttachOptions {
    * different sandbox from the sidebar; the caller reads it on a 'switch'
    * outcome to reconnect directly (instead of re-opening the picker).
    */
-  switchTarget?: { id?: string };
+  switchTarget?: { id?: string; openSidebar?: boolean };
   /** Stops another (un-attached) sandbox by id, for the sidebar's `s` action. */
   stopSandbox?: (id: string) => Promise<void>;
   /** Deletes another (un-attached) sandbox by id, for the sidebar's `d` action. */
   deleteSandbox?: (id: string) => Promise<void>;
+  /** Open the sidebar immediately on attach (used as the entry menu for bare `teleport`). */
+  openSidebarOnStart?: boolean;
 }
 
 /**
@@ -204,7 +206,10 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
       }
       const op = kind === 'stop' ? opts.stopSandbox : opts.deleteSandbox;
       void op?.(current.id).catch(() => {});
-      if (opts.switchTarget) opts.switchTarget.id = neighbour.id;
+      if (opts.switchTarget) {
+        opts.switchTarget.id = neighbour.id;
+        opts.switchTarget.openSidebar = true; // keep managing — don't break the flow
+      }
       settle('switch');
     },
     // Stop/delete of *another* sandbox happens in place.
@@ -244,6 +249,9 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
   };
   void refresh();
   const refreshTimer = opts.listSandboxes ? setInterval(() => void refresh(), 3000) : null;
+
+  // For bare `teleport`, the sidebar *is* the entry menu — open it immediately.
+  if (opts.openSidebarOnStart) compositor.openSidebar();
 
   const stdin = process.stdin;
   const wasRaw = stdin.isRaw ?? false;

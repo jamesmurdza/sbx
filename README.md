@@ -26,7 +26,7 @@ Requires Node ≥ 20.
 
 ```
 teleport [--safe] <command> [args...]  Create (or reconnect to) a sandbox and run <command>
-teleport                       List open sandboxes and reconnect (Ctrl-D deletes)
+teleport                       Open the sidebar to browse/switch/manage sandboxes
 teleport ls                    List open sandboxes (non-interactive)
 teleport stop <id>             Stop a sandbox (it can be restarted on reconnect)
 teleport rm <id>               Delete a sandbox
@@ -84,6 +84,13 @@ teleport --safe claude     # -> claude   (prompts intact)
    Stop/delete/detach of the *current* sandbox ends the session; the same keys on
    *another* sandbox act on it in place. You can also click a row to select it.
    All other keys pass straight through to the agent.
+
+### One menu: the sidebar
+
+There is no separate startup picker. Running `teleport` with no arguments
+attaches to your most-recent sandbox and opens the **sidebar** immediately, so a
+single surface handles browsing, switching, and stop/delete — in-session and at
+startup alike. (`teleport ls` still prints a non-interactive list.)
 
 ### Detach & reconnect
 

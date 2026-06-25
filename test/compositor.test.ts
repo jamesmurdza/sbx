@@ -204,6 +204,19 @@ test('keystrokes are NOT forwarded to the agent while the sidebar is open', () =
   c.stop();
 });
 
+test('openSidebar opens the sidebar (idempotently) as the entry menu', () => {
+  const { c, writes, sizes } = harness(10, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  writes.length = 0;
+  c.openSidebar();
+  assert.ok(writes.join('').includes('SANDBOXES'), 'sidebar shown');
+  assert.equal(sizes.length, 1, 'reflowed once');
+  c.openSidebar(); // already open → no extra reflow
+  assert.equal(sizes.length, 1);
+  c.stop();
+});
+
 test('stop restores the cursor and leaves the alt screen', () => {
   const { c, writes } = harness();
   c.start();

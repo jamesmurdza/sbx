@@ -2,10 +2,16 @@
  * teleport entry point: parses argv and dispatches to the right flow.
  */
 import { parseArgs, USAGE, type Command } from './args.js';
-import { TeleportError, getSession, listSessions, type Session } from './daytona.js';
+import {
+  TeleportError,
+  getSession,
+  listSessions,
+  DEAD_STATES,
+  RUNNING_STATES,
+  type Session,
+} from './daytona.js';
 import { startNew, reconnect, type SwitchRef } from './runner.js';
 import { runDoctor } from './doctor.js';
-import { overlayMenu } from './tui/overlay.js';
 
 function out(msg: string): void {
   process.stdout.write(msg + '\n');
@@ -46,61 +52,42 @@ async function listCommand(): Promise<number> {
   return 0;
 }
 
-/** `teleport` with no args: pick a sandbox to reconnect to, or start fresh. */
+/**
+ * `teleport` with no args: open the sidebar (the single sandbox menu). There is
+ * no separate startup picker — we attach to the most-recent sandbox and open the
+ * sidebar immediately, so you can browse, switch, stop, and delete from there.
+ */
 async function pickerCommand(switchRef: SwitchRef = {}): Promise<number> {
-  // Loop so a 'switch' (sidebar pick or the in-session menu) returns here.
+  // Loop so a 'switch' from the sidebar reconnects to the chosen sandbox.
   for (;;) {
     let target: Session | null = null;
+    let openSidebar = false;
 
-    // A sandbox chosen from the in-session sidebar → reconnect straight to it.
+    // A sandbox chosen from the sidebar → land in it directly. A delete/stop
+    // hand-off keeps the sidebar open so management continues uninterrupted.
     if (switchRef.id) {
       const id = switchRef.id;
       switchRef.id = undefined;
+      openSidebar = switchRef.openSidebar ?? false;
+      switchRef.openSidebar = undefined;
       target = await getSession(id).catch(() => null);
       if (!target) out(`Could not open sandbox ${id}.`);
     }
 
+    // Otherwise (bare `teleport`) attach to the most-recent sandbox and open the
+    // sidebar so it acts as the entry menu.
     if (!target) {
-      const sessions = await listSessions();
-      if (sessions.length === 0) {
+      const live = (await listSessions()).filter((s) => !DEAD_STATES.has(s.state));
+      if (live.length === 0) {
         out('No open sandboxes. Run `teleport <command>` to start one.');
         return 0;
       }
-      const choice = await overlayMenu<Session | 'new' | null>(
-        'Open sandboxes — reconnect (Ctrl-D deletes):',
-        [
-          ...sessions.map((s) => ({
-            label: formatSession(s),
-            value: s as Session | 'new' | null,
-          })),
-          { label: 'Start a new sandbox here', value: 'new' as const },
-        ],
-        {
-          fullscreen: true,
-          onDelete: async (item) => {
-            const s = item.value;
-            if (!s || s === 'new') return false; // only real sandboxes are deletable
-            try {
-              await s.sandbox.delete();
-              return true;
-            } catch {
-              return false;
-            }
-          },
-        },
-      );
-
-      if (!choice) return 0;
-      if (choice === 'new') {
-        out('Run `teleport <command>` to start a new sandbox.');
-        return 0;
-      }
-      target = choice;
+      target = live.find((s) => RUNNING_STATES.has(s.state)) ?? live[0];
+      openSidebar = true;
     }
 
-    const outcome = await reconnect(target, switchRef);
+    const outcome = await reconnect(target, switchRef, openSidebar);
     if (outcome !== 'switch') return 0;
-    // 'switch': loop — reconnect to switchRef.id if set, else re-show the picker.
   }
 }
 

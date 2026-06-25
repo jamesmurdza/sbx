@@ -296,6 +296,11 @@ export class Compositor {
     if (this.sidebarOpen) this.scheduleRender();
   }
 
+  /** Opens the sidebar if it isn't already (e.g. on startup as the entry menu). */
+  openSidebar(): void {
+    if (!this.sidebarOpen) this.toggleSidebar();
+  }
+
   /** Opens/closes the sidebar, reflowing the agent area to fit. */
   toggleSidebar(): void {
     this.sidebarOpen = !this.sidebarOpen;
