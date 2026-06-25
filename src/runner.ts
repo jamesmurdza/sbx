@@ -13,6 +13,7 @@ import {
   listSessions,
   tagBranch,
   DEAD_STATES,
+  RUNNING_STATES,
   type Session,
 } from './daytona.js';
 import { inspectLocalRepo } from './local-git.js';
@@ -246,10 +247,20 @@ async function prepareClaudeConfig(
   }
 }
 
-/** Full flow for reconnecting to an existing sandbox. */
-export async function reconnect(session: Session, openSidebar = false): Promise<void> {
-  log(`connecting to ${session.id.slice(0, 8)}…`);
-  const first = await prepareExisting(session, openSidebar);
+/**
+ * `teleport` with no args: attach to the most-recent sandbox with the sidebar
+ * open as the entry menu, or — when there are none — open the menu idle so it
+ * still works (and you can create one).
+ */
+export async function openSandboxes(): Promise<void> {
+  const live = (await listSessions()).filter((s) => !DEAD_STATES.has(s.state));
+  if (live.length === 0) {
+    await runSessionLoop(null);
+    return;
+  }
+  const target = live.find((s) => RUNNING_STATES.has(s.state)) ?? live[0];
+  log(`connecting to ${target.id.slice(0, 8)}…`);
+  const first = await prepareExisting(target, true);
   await runSessionLoop(first);
 }
 
@@ -313,7 +324,9 @@ async function prepareExisting(session: Session, openSidebar: boolean): Promise<
  * teardown, no flash); stop/delete/detach/exit end the run. Result messages are
  * logged only after the terminal is restored.
  */
-async function runSessionLoop(first: Prepared): Promise<void> {
+const IDLE_MESSAGE = 'No sandbox attached — Ctrl-] for the menu · x to exit';
+
+async function runSessionLoop(first: Prepared | null): Promise<void> {
   const deps: SessionDeps = {
     switchTarget: {},
     deleteSandbox: async (id) => {
@@ -321,12 +334,21 @@ async function runSessionLoop(first: Prepared): Promise<void> {
     },
   };
   const session = new TeleportSession(deps);
-  let prep = first;
+  let current = first;
   let endMsg = '';
   try {
     for (;;) {
-      const outcome = await session.attach(prep.spec);
-      prep.autopush?.stop();
+      // Attached to a sandbox, or idle (chrome up, no agent) when there is none.
+      let outcome;
+      if (current) {
+        try {
+          outcome = await session.attach(current.spec);
+        } finally {
+          current.autopush?.stop();
+        }
+      } else {
+        outcome = await session.idle(IDLE_MESSAGE, () => listSandboxItems(''));
+      }
 
       if (outcome === 'switch' && deps.switchTarget.id) {
         const id = deps.switchTarget.id;
@@ -335,22 +357,23 @@ async function runSessionLoop(first: Prepared): Promise<void> {
         deps.switchTarget.openSidebar = undefined;
         session.connecting(`connecting to ${id.slice(0, 8)}…`);
         const next = await getSession(id).catch(() => null);
-        if (!next) {
-          endMsg = `could not open sandbox ${id}.`;
-          break;
-        }
-        prep = await prepareExisting(next, openSidebar);
+        current = next ? await prepareExisting(next, openSidebar) : null;
         continue;
       }
 
-      const sandbox = prep.spec.sandbox;
       if (outcome === 'deleted') {
-        await sandbox.delete().catch((e) => (endMsg = `failed to delete: ${msgOf(e)}`));
-        endMsg ||= `deleted ${sandbox.id}.`;
-      } else if (outcome === 'detached') {
-        endMsg = `detached. Reconnect with \`teleport\` (${sandbox.id} keeps running, auto-stops when idle).`;
-      } else {
-        endMsg = `session ended. Remove the sandbox with \`teleport rm ${sandbox.id}\`.`;
+        // The last sandbox: delete it and drop to idle (the menu keeps working).
+        if (current) await current.spec.sandbox.delete().catch(() => {});
+        current = null;
+        continue;
+      }
+
+      // 'detached' (x) or 'ended' (agent exited) end the run.
+      if (current) {
+        endMsg =
+          outcome === 'detached'
+            ? `detached. Reconnect with \`teleport\` (${current.spec.sandbox.id} keeps running, auto-stops when idle).`
+            : `session ended. Remove the sandbox with \`teleport rm ${current.spec.sandbox.id}\`.`;
       }
       break;
     }
@@ -358,10 +381,6 @@ async function runSessionLoop(first: Prepared): Promise<void> {
     session.dispose();
     if (endMsg) log(endMsg);
   }
-}
-
-function msgOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 function pushLabel(status: PushStatus, detail?: string): string {

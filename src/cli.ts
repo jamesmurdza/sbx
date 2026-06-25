@@ -2,15 +2,8 @@
  * teleport entry point: parses argv and dispatches to the right flow.
  */
 import { parseArgs, USAGE, type Command } from './args.js';
-import {
-  TeleportError,
-  getSession,
-  listSessions,
-  DEAD_STATES,
-  RUNNING_STATES,
-  type Session,
-} from './daytona.js';
-import { startNew, reconnect } from './runner.js';
+import { TeleportError, getSession, listSessions, type Session } from './daytona.js';
+import { startNew, openSandboxes } from './runner.js';
 import { runDoctor } from './doctor.js';
 
 function out(msg: string): void {
@@ -52,24 +45,6 @@ async function listCommand(): Promise<number> {
   return 0;
 }
 
-/**
- * `teleport` with no args: open the sidebar (the single sandbox menu). There is
- * no separate startup picker — we attach to the most-recent sandbox and open the
- * sidebar immediately; switching/stopping/deleting all happen there. The session
- * loop (in the runner) handles switches in place, so this returns when the whole
- * interactive session ends.
- */
-async function pickerCommand(): Promise<number> {
-  const live = (await listSessions()).filter((s) => !DEAD_STATES.has(s.state));
-  if (live.length === 0) {
-    out('No open sandboxes. Run `teleport <command>` to start one.');
-    return 0;
-  }
-  const target = live.find((s) => RUNNING_STATES.has(s.state)) ?? live[0];
-  await reconnect(target, true);
-  return 0;
-}
-
 async function stopCommand(id: string): Promise<number> {
   const s = await getSession(id);
   await s.sandbox.stop();
@@ -96,7 +71,8 @@ async function dispatch(cmd: Command): Promise<number> {
       out(USAGE);
       return 0;
     case 'list':
-      return pickerCommand();
+      await openSandboxes();
+      return 0;
     case 'ls':
       return listCommand();
     case 'doctor':

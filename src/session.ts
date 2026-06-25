@@ -63,6 +63,9 @@ export type AttachOutcome = 'switch' | 'detached' | 'ended' | 'deleted';
 
 type Pty = Awaited<ReturnType<Sandbox['process']['createPty']>>;
 
+/** Status-bar fields shown while idle (no agent attached). */
+const IDLE_BAR: BarInfo = { shortId: 'teleport', agent: '—' };
+
 /** True when a stdin chunk is exactly the menu trigger (Ctrl-\). */
 export function isMenuTrigger(chunk: Buffer): boolean {
   return chunk.length === 1 && chunk[0] === MENU_KEY;
@@ -157,6 +160,22 @@ export class TeleportSession {
     this.compositor?.resetAgent(label);
   }
 
+  /**
+   * Runs the chrome (status bar + sidebar) with *no* agent attached, showing a
+   * centered message. Used when there are no sandboxes (or the last one was just
+   * deleted) so the menu still works. Resolves on the next sidebar action.
+   */
+  async idle(message: string, listSandboxes: () => Promise<SidebarItem[]>): Promise<AttachOutcome> {
+    const compositor = this.ensureCompositor(IDLE_BAR);
+    this.listProvider = listSandboxes;
+    if (!this.started) this.startInteractive(compositor);
+    compositor.setBar(IDLE_BAR);
+    compositor.resetAgent(message);
+    compositor.openSidebar();
+    void this.refresh();
+    return this.waitOutcome(null);
+  }
+
   /** Attaches a sandbox and resolves when it ends (switch/detach/stop/delete/exit). */
   async attach(spec: AttachSpec): Promise<AttachOutcome> {
     const compositor = this.ensureCompositor(spec.bar);
@@ -195,20 +214,7 @@ export class TeleportSession {
 
     void this.refresh();
 
-    const result = await new Promise<AttachOutcome>((resolve) => {
-      let done = false;
-      const settle = (o: AttachOutcome) => {
-        if (done) return;
-        done = true;
-        resolve(o);
-      };
-      this.settle = settle; // sidebar callbacks resolve this attach
-      pty
-        .wait()
-        .then(() => settle('ended'))
-        .catch(() => settle('ended'));
-    });
-    this.settle = null;
+    const result = await this.waitOutcome(pty);
 
     // Drop the WebSocket *without* killing the PTY — the agent keeps running
     // server-side so a reconnect re-attaches to it. The compositor stays alive.
@@ -292,6 +298,27 @@ export class TeleportSession {
       this.compositor?.setSandboxes(await this.listProvider());
     } catch {
       /* ignore transient list failures */
+    }
+  }
+
+  /** Resolves on the first of: agent exit (if a PTY), or a sidebar action. */
+  private async waitOutcome(pty: Pty | null): Promise<AttachOutcome> {
+    try {
+      return await new Promise<AttachOutcome>((resolve) => {
+        let done = false;
+        const settle = (o: AttachOutcome) => {
+          if (done) return;
+          done = true;
+          resolve(o);
+        };
+        this.settle = settle; // sidebar callbacks resolve this wait
+        pty
+          ?.wait()
+          .then(() => settle('ended'))
+          .catch(() => settle('ended'));
+      });
+    } finally {
+      this.settle = null;
     }
   }
 
