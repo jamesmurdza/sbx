@@ -21,11 +21,13 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@daytonaio/sdk": "^0.110.0"
+    "@daytonaio/sdk": "^0.110.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.6.0"
   }
 }
