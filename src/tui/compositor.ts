@@ -61,9 +61,16 @@ export interface CompositorOptions {
   scrollback?: number;
   /** Called when the agent's drawable area changes size (resize / sidebar toggle). */
   onAgentSize?: (cols: number, rows: number) => void;
-  /** Called when a sidebar row is activated (Enter / click). */
+  /** Called when a sidebar row is activated to switch to it (Enter / click). */
   onSidebarSelect?: (item: SidebarItem, index: number) => void;
+  /** Ends the current session with this outcome (detach / stop / delete it). */
+  onSessionAction?: (outcome: 'detached' | 'stopped' | 'deleted') => void;
+  /** Performs an action on another (un-attached) sandbox, then the list refreshes. */
+  onInlineAction?: (kind: 'stop' | 'delete', item: SidebarItem) => void;
 }
+
+/** Keybinding legend shown in the sidebar footer. */
+const SIDEBAR_LEGEND = '↵ open  s stop  d del  x exit';
 
 /** Clamps a scrollback offset to [0, max]. */
 export function clampScroll(offset: number, max: number): number {
@@ -89,6 +96,7 @@ export class Compositor {
   private sidebarItems: SidebarItem[] = [];
   private sidebarSelected = 0;
   private prevSidebar: string[] | null = null;
+  private pendingDelete: SidebarItem | null = null;
 
   private mouseEncoding: MouseEncoding = 'default';
   private realMouseProtocol: MouseProtocol = 'none';
@@ -183,6 +191,17 @@ export class Compositor {
   }
 
   private navInput(buf: Buffer): void {
+    const s = buf.toString('binary');
+    // A pending delete confirmation swallows the next key.
+    if (this.pendingDelete) {
+      if (s === 'y' || s === 'Y') this.confirmDelete();
+      else this.cancelDelete();
+      return;
+    }
+    // Action keys act on the selected sandbox.
+    if (s === 's') return this.stopSelected();
+    if (s === 'd') return this.askDelete();
+    if (s === 'x' || s === 'X') return void this.opts.onSessionAction?.('detached');
     switch (decodeKey(buf)) {
       case 'up':
         this.moveSelection(-1);
@@ -199,6 +218,37 @@ export class Compositor {
       default:
         break;
     }
+  }
+
+  /** Stops the selected sandbox: ends the session if it's the current one,
+   * otherwise stops it in place (the caller refreshes the list). */
+  private stopSelected(): void {
+    const it = this.sidebarItems[this.sidebarSelected];
+    if (!it) return;
+    if (it.current) this.opts.onSessionAction?.('stopped');
+    else this.opts.onInlineAction?.('stop', it);
+  }
+
+  private askDelete(): void {
+    const it = this.sidebarItems[this.sidebarSelected];
+    if (!it) return;
+    this.pendingDelete = it;
+    this.scheduleRender();
+  }
+
+  private confirmDelete(): void {
+    const it = this.pendingDelete;
+    this.pendingDelete = null;
+    if (it) {
+      if (it.current) this.opts.onSessionAction?.('deleted');
+      else this.opts.onInlineAction?.('delete', it);
+    }
+    this.scheduleRender();
+  }
+
+  private cancelDelete(): void {
+    this.pendingDelete = null;
+    this.scheduleRender();
   }
 
   /** Live status text shown on the right of the bar (e.g. push status). */
@@ -285,7 +335,8 @@ export class Compositor {
 
   /** Maps a clicked screen row (1-based) to a sidebar item and selects it. */
   private selectByRow(screenRow: number): void {
-    const rows = Math.max(0, this.rows - 2); // row 1 is the title
+    // Row 1 is the title and the last row is the footer legend.
+    const rows = Math.max(0, this.rows - 1 - 2);
     const start = windowStart(this.sidebarSelected, this.sidebarItems.length, rows);
     const idx = start + (screenRow - 2);
     if (idx >= 0 && idx < this.sidebarItems.length) {
@@ -343,7 +394,10 @@ export class Compositor {
 
     // Sidebar band on the left, diffed line by line.
     if (w > 0) {
-      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows);
+      const footer = this.pendingDelete
+        ? `delete ${this.pendingDelete.id.slice(0, 8)}? y/n`
+        : SIDEBAR_LEGEND;
+      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, footer);
       for (let r = 0; r < lines.length; r++) {
         if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
         out += `${ESC}[${r + 1};1H` + lines[r];

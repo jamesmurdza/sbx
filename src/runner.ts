@@ -281,6 +281,8 @@ async function runInteractive(
     bindStatus: status.bind,
     listSandboxes: () => listSandboxItems(sandbox.id),
     switchTarget: switchRef,
+    stopSandbox: async (id) => void (await getSession(id)).sandbox.stop(),
+    deleteSandbox: async (id) => void (await getSession(id)).sandbox.delete(),
   });
   autopush?.stop();
   switch (outcome) {

@@ -36,9 +36,18 @@ test('sidebarLines pad empty rows when there are few items', () => {
   assert.ok(lines[5].trimEnd().endsWith('│'));
 });
 
+test('sidebarLines render a footer on the last line when provided', () => {
+  const lines = sidebarLines(items, 0, 26, 8, 's stop  d del');
+  assert.equal(lines.length, 8);
+  for (const l of lines) assert.equal(width(l), 26);
+  assert.ok(lines[7].includes('s stop'), 'footer on the last line');
+  // items now occupy fewer rows (title + footer reserved)
+  assert.ok(lines[0].includes('SANDBOXES'));
+});
+
 test('renderSidebar styling matches the plain lines when stripped', () => {
   const styled = renderSidebar(items, 1, 26, 8);
-  const plain = renderSidebar(items, 1, 26, 8, { color: false });
+  const plain = renderSidebar(items, 1, 26, 8, '', { color: false });
   for (let i = 0; i < styled.length; i++) {
     // eslint-disable-next-line no-control-regex
     assert.equal(styled[i].replace(/\x1b\[[0-9;]*m/g, ''), plain[i]);

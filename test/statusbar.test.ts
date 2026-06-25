@@ -20,12 +20,12 @@ test('displayBranch reduces teleport working branches to the base', () => {
 test('statusSegments builds left id/agent and right repo/branch/live/menu', () => {
   const { left, right } = statusSegments(info, '✓ pushed');
   assert.equal(left, '⚡ 6c73784c  codex');
-  assert.equal(right, 'me/teleport  ·  ↟ main  ·  ✓ pushed  ·  Ctrl-\\ menu');
+  assert.equal(right, 'me/teleport  ·  ↟ main  ·  ✓ pushed  ·  Ctrl-] sandboxes');
 });
 
 test('statusSegments drops empty fields (no repo/branch/live)', () => {
   const { right } = statusSegments({ shortId: 'a', agent: 'claude' }, '');
-  assert.equal(right, 'Ctrl-\\ menu');
+  assert.equal(right, 'Ctrl-] sandboxes');
 });
 
 test('layoutBar fills to exactly cols with left and right justified', () => {

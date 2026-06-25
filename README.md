@@ -76,13 +76,14 @@ teleport --safe claude     # -> claude   (prompts intact)
    in-sandbox tmux). Locally teleport is a **terminal compositor**: it parses the
    agent's output into a headless emulator and renders it, drawing its own bottom
    **status bar** (sandbox id, agent, repo, branch, push status) on a reserved row
-   and bridging mouse + scroll-wheel (with local scrollback). Press **Ctrl-]** to
-   toggle a **collapsible left sidebar** listing all sandboxes — ↑/↓ to move,
-   Enter to switch to another (or click a row); the agent reflows to make room.
-   Press **Ctrl-\\** at any time to open the **sandbox menu** — a centered overlay with
-   Switch sandbox (detach and return to the picker), Detach and exit (leave
-   running), Stop sandbox and exit (keep, restart later), or Delete sandbox and
-   exit (destroy). All other keys (including Esc) pass straight through to the agent.
+   and bridging mouse + scroll-wheel (with local scrollback). Press **Ctrl-]** (or
+   **Ctrl-\\**) to toggle the **collapsible left sidebar** — the control center
+   for all your sandboxes. The agent reflows to make room, and the sidebar
+   captures: **↑/↓** move · **Enter** switch to the selected sandbox · **s** stop
+   it · **d** delete it (asks `y/n`) · **x** detach and exit · **Esc** close.
+   Stop/delete/detach of the *current* sandbox ends the session; the same keys on
+   *another* sandbox act on it in place. You can also click a row to select it.
+   All other keys pass straight through to the agent.
 
 ### Detach & reconnect
 

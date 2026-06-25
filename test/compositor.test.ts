@@ -21,6 +21,8 @@ function harness(rows = 6, cols = 20) {
   const toPty: string[] = [];
   const sizes: Array<[number, number]> = [];
   const selected: Array<{ id: string; index: number }> = [];
+  const sessionActions: string[] = [];
+  const inlineActions: Array<{ kind: string; id: string }> = [];
   const c = new Compositor({
     cols,
     rows,
@@ -29,8 +31,10 @@ function harness(rows = 6, cols = 20) {
     sendInput: (d) => toPty.push(typeof d === 'string' ? d : Buffer.from(d).toString('binary')),
     onAgentSize: (co, ro) => sizes.push([co, ro]),
     onSidebarSelect: (it, index) => selected.push({ id: it.id, index }),
+    onSessionAction: (a) => sessionActions.push(a),
+    onInlineAction: (kind, it) => inlineActions.push({ kind, id: it.id }),
   });
-  return { c, writes, toPty, sizes, selected, out: () => writes.join('') };
+  return { c, writes, toPty, sizes, selected, sessionActions, inlineActions, out: () => writes.join('') };
 }
 
 const sandboxes = [
@@ -90,6 +94,42 @@ test('open sidebar captures arrows and Enter activates the selection', () => {
   c.input(Buffer.from('\x1b[B')); // down
   c.input(Buffer.from('\r')); // enter
   assert.deepEqual(selected, [{ id: 'bbbb2222', index: 1 }]);
+  c.stop();
+});
+
+test('sidebar action keys: x detaches, s/d act on current vs other sandbox', () => {
+  const { c, sessionActions, inlineActions } = harness(12, 80);
+  c.start();
+  c.setSandboxes(sandboxes); // index 0 is current
+  c.input(Buffer.from('\x1d')); // open (selection starts on current = 0)
+
+  c.input(Buffer.from('x')); // detach the whole session
+  assert.deepEqual(sessionActions, ['detached']);
+
+  c.input(Buffer.from('s')); // stop the current sandbox → ends session
+  assert.deepEqual(sessionActions, ['detached', 'stopped']);
+
+  c.input(Buffer.from('\x1b[B')); // down to another sandbox (index 1)
+  c.input(Buffer.from('s')); // stop another → inline, stays attached
+  assert.deepEqual(inlineActions, [{ kind: 'stop', id: 'bbbb2222' }]);
+  c.stop();
+});
+
+test('delete asks for confirmation; y confirms, anything else cancels', () => {
+  const { c, sessionActions, inlineActions } = harness(12, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  c.input(Buffer.from('\x1d'));
+  c.input(Buffer.from('\x1b[B')); // select another (index 1)
+
+  c.input(Buffer.from('d')); // ask
+  c.input(Buffer.from('n')); // cancel
+  assert.deepEqual(inlineActions, [], 'cancelled, no delete');
+
+  c.input(Buffer.from('d')); // ask
+  c.input(Buffer.from('y')); // confirm
+  assert.deepEqual(inlineActions, [{ kind: 'delete', id: 'bbbb2222' }]);
+  assert.deepEqual(sessionActions, []);
   c.stop();
 });
 

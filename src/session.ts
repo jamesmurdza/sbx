@@ -10,19 +10,19 @@
  * emulator and rendered to the screen, with teleport drawing its own status bar
  * on the bottom row and bridging mouse/scroll (see ./tui/compositor).
  *
- * Pressing Ctrl-\ is intercepted locally and opens the sandbox menu
- * (Switch / Detach / Stop / Delete). Switch and Detach leave the agent running;
- * Stop/Delete are performed by the caller after the attach returns.
+ * Ctrl-\ (or Ctrl-]) is intercepted locally to toggle the sandbox sidebar — the
+ * control center for switching between sandboxes and stopping/deleting/detaching
+ * them. Stop/delete/detach of the *current* sandbox end the attach and are
+ * carried out by the caller; actions on other sandboxes happen in place.
  */
 import type { Sandbox } from '@daytonaio/sdk';
 import { PTY_SESSION_ID } from './config.js';
 import { sandboxHome } from './sandbox-ops.js';
-import { overlayMenu } from './tui/overlay.js';
 import { Compositor } from './tui/compositor.js';
 import type { BarInfo } from './tui/statusbar.js';
 import type { SidebarItem } from './tui/sidebar.js';
 
-/** Ctrl-\ (FS, 0x1c) — the key that opens the teleport sandbox menu. */
+/** Ctrl-\ (FS, 0x1c) — toggles the teleport sandbox sidebar. */
 const MENU_KEY = 0x1c;
 
 export interface AttachOptions {
@@ -48,6 +48,10 @@ export interface AttachOptions {
    * outcome to reconnect directly (instead of re-opening the picker).
    */
   switchTarget?: { id?: string };
+  /** Stops another (un-attached) sandbox by id, for the sidebar's `s` action. */
+  stopSandbox?: (id: string) => Promise<void>;
+  /** Deletes another (un-attached) sandbox by id, for the sidebar's `d` action. */
+  deleteSandbox?: (id: string) => Promise<void>;
 }
 
 /**
@@ -142,9 +146,7 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     ...opts.env,
   };
 
-  let menuOpen = false;
-
-  // Resolve the outcome on the first of: agent exit, or a menu/sidebar action.
+  // Resolve the outcome on the first of: agent exit, or a sidebar action.
   let settled = false;
   let resolveOutcome!: (o: AttachOutcome) => void;
   const outcome = new Promise<AttachOutcome>((r) => (resolveOutcome = r));
@@ -152,6 +154,19 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     if (settled) return;
     settled = true;
     resolveOutcome(o);
+  };
+
+  // Performs a stop/delete on another sandbox, then refreshes the sidebar list.
+  const inlineAction = (kind: 'stop' | 'delete', id: string) => {
+    void (async () => {
+      try {
+        if (kind === 'stop') await opts.stopSandbox?.(id);
+        else await opts.deleteSandbox?.(id);
+      } catch {
+        /* surfaced via the refreshed list */
+      }
+      await refresh();
+    })();
   };
 
   let comp!: Compositor;
@@ -172,6 +187,10 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
       if (opts.switchTarget) opts.switchTarget.id = item.id;
       settle('switch');
     },
+    // Detach/stop/delete of the *current* sandbox ends the attach.
+    onSessionAction: (action) => settle(action),
+    // Stop/delete of *another* sandbox happens in place.
+    onInlineAction: (kind, item) => inlineAction(kind, item.id),
   });
   const compositor = comp;
   opts.bindStatus?.((text) => compositor.setLiveStatus(text));
@@ -213,50 +232,17 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
   if (stdin.setRawMode) stdin.setRawMode(true);
   stdin.resume();
 
-  const openMenu = async (): Promise<AttachOutcome | null> => {
-    const choice = await overlayMenu('teleport — sandbox menu', [
-      { label: 'Switch sandbox', value: 'switch' as const },
-      { label: 'Detach and exit', value: 'detached' as const },
-      { label: 'Stop sandbox and exit', value: 'stopped' as const },
-      { label: 'Delete sandbox and exit', value: 'deleted' as const },
-    ]);
-    if (choice === 'switch' || choice === 'detached' || choice === 'stopped' || choice === 'deleted')
-      return choice;
-    return null;
-  };
-
-  const handleMenu = async () => {
-    if (menuOpen) return;
-    menuOpen = true;
-    compositor.pause(); // overlay owns the screen while the menu is up
-    stdin.off('data', onStdin);
-    let action: AttachOutcome | null = null;
-    try {
-      action = await openMenu();
-    } catch {
-      action = null;
-    }
-    menuOpen = false;
-    if (action) {
-      settle(action);
-      return;
-    }
-    stdin.on('data', onStdin);
-    stdin.resume();
-    compositor.resume(); // repaint over the closed menu
-  };
-
+  // Ctrl-\ and Ctrl-] both toggle the sidebar (the control center for switching
+  // and stop/delete/detach); all other keys go to the compositor.
   const onStdin = (chunk: Buffer) => {
-    if (menuOpen) return;
     if (isMenuTrigger(chunk)) {
-      void handleMenu();
+      compositor.toggleSidebar();
       return;
     }
     compositor.input(chunk);
   };
 
   const onResize = () => {
-    if (menuOpen) return;
     // The compositor reflows and resizes the PTY (via onAgentSize) to the new
     // agent area, accounting for the sidebar.
     compositor.resize(process.stdout.columns ?? 80, process.stdout.rows ?? 24);

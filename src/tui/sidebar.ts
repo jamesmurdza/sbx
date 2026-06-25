@@ -45,16 +45,27 @@ export function windowStart(selected: number, count: number, rows: number): numb
   return Math.max(0, Math.min(selected - half, count - rows));
 }
 
+/** Rows available for items, given a title and an optional footer line. */
+function itemRowCount(height: number, hasFooter: boolean): number {
+  return Math.max(0, height - 1 - (hasFooter ? 1 : 0));
+}
+
+function footerShown(height: number, footer: string): boolean {
+  return height >= 3 && footer !== '';
+}
+
 /** The plain (un-styled) sidebar lines — used for layout tests. */
 export function sidebarLines(
   items: SidebarItem[],
   selected: number,
   width: number,
   height: number,
+  footer = '',
 ): string[] {
   const inner = Math.max(1, width - 1); // last column is the separator
+  const hasFooter = footerShown(height, footer);
   const lines: string[] = [padTrunc(' SANDBOXES', inner) + SEP];
-  const rows = Math.max(0, height - 1);
+  const rows = itemRowCount(height, hasFooter);
   const start = windowStart(selected, items.length, rows);
   for (let i = 0; i < rows; i++) {
     const idx = start + i;
@@ -67,12 +78,14 @@ export function sidebarLines(
     const marker = it.current ? '●' : ' ';
     lines.push(padTrunc(`${cursor}${marker} ${it.id.slice(0, 8)} ${it.agent}`, inner) + SEP);
   }
+  if (hasFooter) lines.push(padTrunc(` ${footer}`, inner) + SEP);
   return lines.slice(0, height);
 }
 
 /**
  * Renders the sidebar as styled ANSI lines: the title is bold, the selected row
- * is inverse, the current sandbox is normal weight and others are dimmed. With
+ * is inverse, the current sandbox is normal weight and others are dimmed, and
+ * the optional footer (keybinding legend / confirm prompt) is dimmed. With
  * `color:false` it returns the same text without SGR (for tests).
  */
 export function renderSidebar(
@@ -80,16 +93,19 @@ export function renderSidebar(
   selected: number,
   width: number,
   height: number,
+  footer = '',
   opts: { color?: boolean } = {},
 ): string[] {
-  const plain = sidebarLines(items, selected, width, height);
+  const plain = sidebarLines(items, selected, width, height, footer);
   if (opts.color === false) return plain;
-  const rows = Math.max(0, height - 1);
+  const hasFooter = footerShown(height, footer);
+  const rows = itemRowCount(height, hasFooter);
   const start = windowStart(selected, items.length, rows);
   return plain.map((line, i) => {
     const body = line.slice(0, -1); // strip the separator char before styling
     const sep = `${ESC}[2m${SEP}${ESC}[22m`;
     if (i === 0) return `${ESC}[1m${body}${ESC}[22m${sep}`;
+    if (hasFooter && i === plain.length - 1) return `${ESC}[2m${body}${ESC}[22m${sep}`;
     const idx = start + (i - 1);
     const it = items[idx];
     if (idx === selected && it) return `${ESC}[7m${body}${ESC}[27m${sep}`;

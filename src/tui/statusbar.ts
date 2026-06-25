@@ -44,7 +44,7 @@ export function statusSegments(info: BarInfo, live: string): { left: string; rig
     info.repo ?? '',
     info.branch ? `↟ ${displayBranch(info.branch)}` : '',
     live.trim(),
-    'Ctrl-\\ menu',
+    'Ctrl-] sandboxes',
   ]
     .filter(Boolean)
     .join('  ·  ');
