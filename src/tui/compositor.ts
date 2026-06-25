@@ -97,7 +97,10 @@ export class Compositor {
 
   /** Enters the alt screen, hides the cursor, enables mouse, paints frame one. */
   start(): void {
-    this.opts.write(`${ESC}[?1049h${ESC}[2J${ESC}[H${ESC}[?25l`);
+    // Disable autowrap (?7l): we position every row absolutely, so a full-width
+    // row (or the bottom status bar) must not wrap to the next line and scroll
+    // the screen — that produces duplicated "double" rows.
+    this.opts.write(`${ESC}[?1049h${ESC}[2J${ESC}[H${ESC}[?25l${ESC}[?7l`);
     // Always capture buttons + wheel so local scrollback works even for agents
     // that never enable mouse themselves.
     this.opts.write(realTerminalMouseSequences('none'));
@@ -163,8 +166,8 @@ export class Compositor {
     this.disposed = true;
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.opts.write(realTerminalMouseDisable());
-    // Show cursor, leave alt screen.
-    this.opts.write(`${ESC}[?25h${ESC}[2J${ESC}[H${ESC}[?1049l`);
+    // Restore autowrap, show cursor, leave alt screen.
+    this.opts.write(`${ESC}[?7h${ESC}[?25h${ESC}[2J${ESC}[H${ESC}[?1049l`);
     for (const dispose of this.disposers) dispose();
     this.term.dispose();
   }

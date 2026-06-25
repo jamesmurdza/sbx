@@ -144,17 +144,29 @@ export function frameFromBuffer(buf: BufferView, top: number, cols: number, rows
       frame.push(row);
       continue;
     }
-    for (let c = 0; c < cols; c++) {
+    // Track *visual* columns: a wide glyph is one cell occupying two columns,
+    // and its trailing half is a width-0 cell we skip. Padding/stopping by
+    // visual width (not cell count) keeps every row exactly `cols` columns wide
+    // so it never overruns and wraps.
+    let vis = 0;
+    for (let c = 0; c < cols && vis < cols; c++) {
       const cell = line.getCell(c);
       if (!cell) {
         row.push({ ...BLANK });
+        vis += 1;
         continue;
       }
-      if (cell.getWidth() === 0) continue; // trailing half of a wide glyph
+      const w = cell.getWidth();
+      if (w === 0) continue; // trailing half of a wide glyph
+      if (vis + w > cols) break; // a wide glyph that would overflow the last col
       const ch = cell.getChars();
       row.push({ ch: ch === '' ? ' ' : ch, sgr: cellSgr(cell) });
+      vis += w;
     }
-    while (row.length < cols) row.push({ ...BLANK });
+    while (vis < cols) {
+      row.push({ ...BLANK });
+      vis += 1;
+    }
     frame.push(row);
   }
   return frame;

@@ -66,3 +66,17 @@ test('cellSgr and frameFromBuffer extract text + truecolor from xterm', async ()
   const f2 = frameFromBuffer(term.buffer.active, 0, 10, 3);
   assert.ok(f2[1][0].sgr.split(';').includes('1'));
 });
+
+test('frameFromBuffer keeps rows at exactly `cols` visual columns with wide glyphs', () => {
+  const term = new Terminal({ cols: 6, rows: 1, allowProposedApi: true });
+  // Two wide CJK glyphs (width 2 each) + two narrow = 6 visual columns.
+  return new Promise<void>((res) => {
+    term.write('\x1b[1;1H世界ab', () => {
+      const f = frameFromBuffer(term.buffer.active, 0, 6, 1);
+      const visual = f[0].reduce((n, c) => n + ([...c.ch][0] && c.ch.charCodeAt(0) > 0x1100 ? 2 : 1), 0);
+      assert.equal(visual, 6, 'row spans exactly cols visual columns');
+      assert.equal(f[0].map((c) => c.ch).join(''), '世界ab');
+      res();
+    });
+  });
+});
