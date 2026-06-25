@@ -41,9 +41,9 @@ export function displayBranch(branch: string): string {
 export function statusSegments(info: BarInfo, live: string): { left: string; right: string } {
   const left = `⚡ ${info.shortId}  ${info.agent}`;
   const right = [
-    info.repo ?? '',
     info.branch ? `↟ ${displayBranch(info.branch)}` : '',
     live.trim(),
+    'Ctrl-] sidebar',
   ]
     .filter(Boolean)
     .join('  ·  ');

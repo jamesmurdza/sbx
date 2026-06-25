@@ -17,15 +17,15 @@ test('displayBranch reduces teleport working branches to the base', () => {
   assert.equal(displayBranch('my-own-branch'), 'my-own-branch');
 });
 
-test('statusSegments builds left id/agent and right repo/branch/live', () => {
+test('statusSegments builds left id/agent and right branch/live/note', () => {
   const { left, right } = statusSegments(info, '✓ pushed');
   assert.equal(left, '⚡ 6c73784c  codex');
-  assert.equal(right, 'me/teleport  ·  ↟ main  ·  ✓ pushed');
+  assert.equal(right, '↟ main  ·  ✓ pushed  ·  Ctrl-] sidebar');
 });
 
-test('statusSegments drops empty fields (no repo/branch/live)', () => {
+test('statusSegments shows just the Ctrl-] note when branch/live are empty', () => {
   const { right } = statusSegments({ shortId: 'a', agent: 'claude' }, '');
-  assert.equal(right, '');
+  assert.equal(right, 'Ctrl-] sidebar');
 });
 
 test('layoutBar fills to exactly cols with left and right justified', () => {
