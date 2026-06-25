@@ -3,7 +3,7 @@
  *
  *   teleport                 -> list/reconnect picker
  *   teleport <cmd> [args...] -> create-or-reconnect and run <cmd>
- *   teleport ls              -> non-interactive session list
+ *   teleport ls              -> non-interactive sandbox list
  *   teleport stop <id>       -> stop a sandbox
  *   teleport rm <id>         -> delete a sandbox
  *   teleport push [<id>]     -> push pending commits now
@@ -78,11 +78,11 @@ export const USAGE = `teleport — run an AI agent in a fresh Daytona sandbox
 
 Usage:
   teleport [--safe] <command> [args...]  Create (or reconnect to) a sandbox and run <command>
-  teleport                       List open sessions and reconnect
-  teleport ls                    List open sessions (non-interactive)
+  teleport                       List open sandboxes and reconnect
+  teleport ls                    List open sandboxes (non-interactive)
   teleport stop <id>             Stop a sandbox
   teleport rm <id>               Delete a sandbox
-  teleport push [<id>]           Push pending commits for a session now
+  teleport push [<id>]           Push pending commits for a sandbox now
   teleport doctor                Run preflight diagnostics
   teleport help                  Show this help
 

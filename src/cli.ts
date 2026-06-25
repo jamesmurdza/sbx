@@ -5,7 +5,6 @@ import { parseArgs, USAGE, type Command } from './args.js';
 import { TeleportError, getSession, listSessions, type Session } from './daytona.js';
 import { startNew, reconnect } from './runner.js';
 import { runDoctor } from './doctor.js';
-import { inspectLocalRepo } from './local-git.js';
 import { overlayMenu } from './tui/overlay.js';
 
 function out(msg: string): void {
@@ -37,7 +36,7 @@ function formatSession(s: Session): string {
 async function listCommand(): Promise<number> {
   const sessions = await listSessions();
   if (sessions.length === 0) {
-    out('No teleport sessions. Start one with `teleport <command>`.');
+    out('No teleport sandboxes. Start one with `teleport <command>`.');
     return 0;
   }
   out('');
@@ -47,46 +46,49 @@ async function listCommand(): Promise<number> {
   return 0;
 }
 
-/** `teleport` with no args: pick a session to reconnect to, or start fresh. */
+/** `teleport` with no args: pick a sandbox to reconnect to, or start fresh. */
 async function pickerCommand(): Promise<number> {
-  const repo = await inspectLocalRepo(process.cwd());
-  const sessions = await listSessions();
-  if (sessions.length === 0) {
-    out('No open sessions. Run `teleport <command>` to start one.');
-    return 0;
-  }
+  // Loop so "Switch sandbox" from the in-sandbox menu returns here to pick again.
+  for (;;) {
+    const sessions = await listSessions();
+    if (sessions.length === 0) {
+      out('No open sandboxes. Run `teleport <command>` to start one.');
+      return 0;
+    }
 
-  const choice = await overlayMenu<Session | 'new' | null>(
-    'Open sessions — reconnect (Ctrl-D deletes):',
-    [
-      ...sessions.map((s) => ({
-        label: formatSession(s),
-        value: s as Session | 'new' | null,
-      })),
-      { label: 'Start a new session here', value: 'new' as const },
-    ],
-    {
-      fullscreen: true,
-      onDelete: async (item) => {
-        const s = item.value;
-        if (!s || s === 'new') return false; // only real sessions are deletable
-        try {
-          await s.sandbox.delete();
-          return true;
-        } catch {
-          return false;
-        }
+    const choice = await overlayMenu<Session | 'new' | null>(
+      'Open sandboxes — reconnect (Ctrl-D deletes):',
+      [
+        ...sessions.map((s) => ({
+          label: formatSession(s),
+          value: s as Session | 'new' | null,
+        })),
+        { label: 'Start a new sandbox here', value: 'new' as const },
+      ],
+      {
+        fullscreen: true,
+        onDelete: async (item) => {
+          const s = item.value;
+          if (!s || s === 'new') return false; // only real sandboxes are deletable
+          try {
+            await s.sandbox.delete();
+            return true;
+          } catch {
+            return false;
+          }
+        },
       },
-    },
-  );
+    );
 
-  if (!choice) return 0;
-  if (choice === 'new') {
-    out('Run `teleport <command>` to start a new session.');
-    return 0;
+    if (!choice) return 0;
+    if (choice === 'new') {
+      out('Run `teleport <command>` to start a new sandbox.');
+      return 0;
+    }
+    const outcome = await reconnect(choice);
+    if (outcome !== 'switch') return 0;
+    // 'switch': loop back to re-render the picker with a fresh sandbox list.
   }
-  await reconnect(choice);
-  return 0;
 }
 
 async function stopCommand(id: string): Promise<number> {
@@ -126,9 +128,12 @@ async function dispatch(cmd: Command): Promise<number> {
       return rmCommand(cmd.id);
     case 'push':
       return pushCommand(cmd.id);
-    case 'run':
-      await startNew({ command: cmd.command, args: cmd.args, yolo: cmd.yolo });
+    case 'run': {
+      const outcome = await startNew({ command: cmd.command, args: cmd.args, yolo: cmd.yolo });
+      // "Switch sandbox" from the in-sandbox menu drops back to the picker.
+      if (outcome === 'switch') return pickerCommand();
       return 0;
+    }
   }
 }
 

@@ -4,8 +4,9 @@
  * stdin -> sandbox, sandbox -> stdout, plus resize forwarding.
  *
  * Pressing Ctrl-\ does NOT go to the agent — teleport intercepts it locally and
- * opens a session menu (Detach / Stop / Delete / Cancel). Detach leaves tmux
- * running; Stop/Delete are performed by the caller after the attach returns.
+ * opens a sandbox menu (Switch / Detach / Stop / Delete). Switch and Detach
+ * leave tmux running; Stop/Delete are performed by the caller after the attach
+ * returns. Switch additionally tells the caller to return to the sandbox picker.
  */
 import type { Sandbox } from '@daytonaio/sdk';
 import { TMUX_CONF_PATH, TMUX_SESSION, TMUX_STATUS_FILE } from './config.js';
@@ -14,7 +15,7 @@ import { tmuxConf, type BarInfo } from './tui/tmux.js';
 import { overlayMenu } from './tui/overlay.js';
 
 const ESC = '\x1b';
-/** Ctrl-\ (FS, 0x1c) — the key that opens the teleport session menu. */
+/** Ctrl-\ (FS, 0x1c) — the key that opens the teleport sandbox menu. */
 const MENU_KEY = 0x1c;
 
 export interface AttachOptions {
@@ -29,10 +30,11 @@ export interface AttachOptions {
 }
 
 /**
- * How an attach ended. 'detached'/'ended' need no further action; 'stopped' and
- * 'deleted' tell the caller to stop or delete the sandbox.
+ * How an attach ended. 'switch'/'detached'/'ended' leave the sandbox running;
+ * 'stopped' and 'deleted' tell the caller to stop or delete the sandbox.
+ * 'switch' additionally tells the caller to return to the sandbox picker.
  */
-export type AttachOutcome = 'detached' | 'ended' | 'stopped' | 'deleted';
+export type AttachOutcome = 'switch' | 'detached' | 'ended' | 'stopped' | 'deleted';
 
 /** True when a stdin chunk is exactly the menu trigger (Ctrl-\). */
 export function isMenuTrigger(chunk: Buffer): boolean {
@@ -117,15 +119,16 @@ export async function attach(sandbox: Sandbox, opts: AttachOptions): Promise<Att
     await pty.resize(c, r).catch(() => {});
   };
 
-  /** Shows the centered session menu and returns the action, or null to resume. */
+  /** Shows the centered sandbox menu and returns the action, or null to resume. */
   const openMenu = async (): Promise<AttachOutcome | null> => {
-    const choice = await overlayMenu('teleport — session menu', [
-      { label: 'Detach — leave it running', value: 'detached' as const },
-      { label: 'Stop — keep, restart later', value: 'stopped' as const },
-      { label: 'Delete — destroy this sandbox', value: 'deleted' as const },
-      { label: 'Cancel — resume session', value: 'cancel' as const },
+    const choice = await overlayMenu('teleport — sandbox menu', [
+      { label: 'Switch sandbox', value: 'switch' as const },
+      { label: 'Detach and exit', value: 'detached' as const },
+      { label: 'Stop sandbox and exit', value: 'stopped' as const },
+      { label: 'Delete sandbox and exit', value: 'deleted' as const },
     ]);
-    if (choice === 'detached' || choice === 'stopped' || choice === 'deleted') return choice;
+    if (choice === 'switch' || choice === 'detached' || choice === 'stopped' || choice === 'deleted')
+      return choice;
     return null;
   };
 

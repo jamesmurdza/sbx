@@ -26,8 +26,8 @@ Requires Node ≥ 20.
 
 ```
 teleport [--safe] <command> [args...]  Create (or reconnect to) a sandbox and run <command>
-teleport                       List open sessions and reconnect (Ctrl-D deletes)
-teleport ls                    List open sessions (non-interactive)
+teleport                       List open sandboxes and reconnect (Ctrl-D deletes)
+teleport ls                    List open sandboxes (non-interactive)
 teleport stop <id>             Stop a sandbox (it can be restarted on reconnect)
 teleport rm <id>               Delete a sandbox
 teleport push [<id>]           Push pending commits now
@@ -37,7 +37,7 @@ teleport help                  Show help
 
 ### Permission prompts are skipped by default
 
-Because every session runs in a throwaway sandbox, teleport appends the agent's
+Because every sandbox runs a throwaway agent, teleport appends the agent's
 permission/approval-skipping flag by default:
 
 ```
@@ -74,15 +74,16 @@ teleport --safe claude     # -> claude   (prompts intact)
 5. **Attach.** The agent runs inside a `tmux` session in the sandbox and is
    streamed over a PTY. tmux draws the bottom **status bar** natively (sandbox id,
    agent, repo, branch, push status), so it never corrupts the agent's UI. Press
-   **Ctrl-\\** at any time to open the **session menu** — a centered overlay with
-   Detach (leave running), Stop (keep, restart later), Delete (destroy), or
-   Cancel. All other keys (including Esc) pass straight through to the agent.
+   **Ctrl-\\** at any time to open the **sandbox menu** — a centered overlay with
+   Switch sandbox (detach and return to the picker), Detach and exit (leave
+   running), Stop sandbox and exit (keep, restart later), or Delete sandbox and
+   exit (destroy). All other keys (including Esc) pass straight through to the agent.
 
 ### Detach & reconnect
 
 Sandboxes auto-stop when idle. Reconnecting restarts a stopped sandbox and
 relaunches the agent (which resumes from its on-disk state, e.g. `claude`'s saved
-conversation). A live, still-running session reattaches to the exact process.
+conversation). A live, still-running sandbox reattaches to the exact process.
 
 ## Configuration
 

@@ -1,5 +1,5 @@
 /**
- * High-level orchestration for starting a new session and reconnecting to an
+ * High-level orchestration for starting a new sandbox and reconnecting to an
  * existing one: ties together repo inspection, the credential modal, sandbox
  * creation, repo clone + teleport branch, auto-push, and the interactive attach.
  */
@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { resolveGitHubToken } from './git/auth.js';
 import { setupRepo } from './git/repo.js';
 import { AutoPush, type PushStatus } from './git/autopush.js';
-import { attach, setLiveStatus } from './session.js';
+import { attach, setLiveStatus, type AttachOutcome } from './session.js';
 import type { BarInfo } from './tui/tmux.js';
 import { overlayMenu, overlayConfirm } from './tui/overlay.js';
 
@@ -37,7 +37,7 @@ export interface StartOptions {
 }
 
 /** Full flow for `teleport <command>`. */
-export async function startNew(opts: StartOptions): Promise<void> {
+export async function startNew(opts: StartOptions): Promise<AttachOutcome> {
   const cwd = process.cwd();
   const repo = await inspectLocalRepo(cwd);
 
@@ -54,7 +54,7 @@ export async function startNew(opts: StartOptions): Promise<void> {
     );
     if (!ok) {
       log('cancelled.');
-      return;
+      return 'ended';
     }
   } else if (repo) {
     if (repo.dirty || repo.ahead > 0) {
@@ -85,7 +85,7 @@ export async function startNew(opts: StartOptions): Promise<void> {
     );
     if (picked === null) {
       log('cancelled.');
-      return;
+      return 'ended';
     }
     chosen = picked === 'none' ? null : picked;
   }
@@ -157,7 +157,7 @@ export async function startNew(opts: StartOptions): Promise<void> {
     });
   }
 
-  await runInteractive(sandbox, runCommand, cwdInSandbox, env, bar, autopush);
+  return runInteractive(sandbox, runCommand, cwdInSandbox, env, bar, autopush);
 }
 
 /**
@@ -203,8 +203,8 @@ async function prepareClaudeConfig(
   }
 }
 
-/** Full flow for reconnecting to an existing session. */
-export async function reconnect(session: Session): Promise<void> {
+/** Full flow for reconnecting to an existing sandbox. */
+export async function reconnect(session: Session): Promise<AttachOutcome> {
   log(`reconnecting to ${session.id} (${session.state})…`);
   await ensureStarted(session.sandbox);
 
@@ -240,7 +240,7 @@ export async function reconnect(session: Session): Promise<void> {
     }
   }
 
-  await runInteractive(session.sandbox, session.command, cwdInSandbox, env, bar, autopush);
+  return runInteractive(session.sandbox, session.command, cwdInSandbox, env, bar, autopush);
 }
 
 async function runInteractive(
@@ -250,10 +250,13 @@ async function runInteractive(
   env: Record<string, string>,
   bar: BarInfo,
   autopush?: AutoPush,
-): Promise<void> {
+): Promise<AttachOutcome> {
   const outcome = await attach(sandbox, { command, cwd, env, bar });
   autopush?.stop();
   switch (outcome) {
+    case 'switch':
+      log(`switching sandbox (${sandbox.id} keeps running, auto-stops when idle).`);
+      break;
     case 'detached':
       log(`detached. Reconnect with \`teleport\` (sandbox ${sandbox.id} keeps running, auto-stops when idle).`);
       break;
@@ -266,8 +269,9 @@ async function runInteractive(
       log(`deleted ${sandbox.id}.`);
       break;
     default:
-      log(`session ended. Remove the sandbox with \`teleport rm ${sandbox.id}\`.`);
+      log(`sandbox session ended. Remove the sandbox with \`teleport rm ${sandbox.id}\`.`);
   }
+  return outcome;
 }
 
 function pushLabel(status: PushStatus, detail?: string): string {
