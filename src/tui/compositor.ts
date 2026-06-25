@@ -85,8 +85,8 @@ export interface CompositorOptions {
   onDeleteOther?: (item: SidebarItem) => void;
 }
 
-/** Keybinding legend shown in the sidebar footer. */
-const SIDEBAR_LEGEND = '↵ open  n new  i info  g web  d del  x exit';
+/** Keybinding legend shown in the sidebar footer (two rows so it isn't clipped). */
+const SIDEBAR_LEGEND = ['↵ open   n new   i info', 'g web   d del   x exit'];
 
 /** Clamps a scrollback offset to [0, max]. */
 export function clampScroll(offset: number, max: number): number {
@@ -491,10 +491,17 @@ export class Compositor {
     if (it) this.opts.onSidebarSelect?.(it, this.sidebarSelected);
   }
 
+  /** Footer rows for the sidebar (delete-confirm prompt, else the legend). */
+  private sidebarFooter(): string[] {
+    if (this.pendingDelete) return [`delete ${this.pendingDelete.id.slice(0, 8)}? y/n`, ''];
+    return SIDEBAR_LEGEND;
+  }
+
   /** Maps a clicked screen row (1-based) to a sidebar item and selects it. */
   private selectByRow(screenRow: number): void {
-    // Row 1 is the title and the last row is the footer legend.
-    const rows = Math.max(0, this.rows - 1 - 2);
+    // Row 1 is the title; the last rows are the footer legend.
+    const agentRows = Math.max(1, this.rows - 1);
+    const rows = Math.max(0, agentRows - 1 - this.sidebarFooter().length);
     const start = windowStart(this.sidebarSelected, this.sidebarItems.length, rows);
     const idx = start + (screenRow - 2);
     if (idx >= 0 && idx < this.sidebarItems.length && idx !== this.sidebarSelected) {
@@ -557,10 +564,7 @@ export class Compositor {
 
     // Sidebar band on the left, diffed line by line.
     if (w > 0) {
-      const footer = this.pendingDelete
-        ? `delete ${this.pendingDelete.id.slice(0, 8)}? y/n`
-        : SIDEBAR_LEGEND;
-      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, footer);
+      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter());
       for (let r = 0; r < lines.length; r++) {
         if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
         out += `${ESC}[${r + 1};1H` + lines[r];
