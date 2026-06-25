@@ -54,11 +54,11 @@ export function emitRow(cells: Cell[]): string {
  * agent region). Each changed row is positioned absolutely, repainted, and
  * cleared to end of line. Returns '' when nothing changed.
  */
-export function renderFrameDiff(prev: Frame | null, next: Frame, row0 = 1): string {
+export function renderFrameDiff(prev: Frame | null, next: Frame, row0 = 1, col0 = 1): string {
   let out = '';
   for (let r = 0; r < next.length; r++) {
     if (prev && prev[r] && rowEq(prev[r], next[r])) continue;
-    out += `${ESC}[${row0 + r};1H` + emitRow(next[r]) + `${ESC}[0K`;
+    out += `${ESC}[${row0 + r};${col0}H` + emitRow(next[r]) + `${ESC}[0K`;
   }
   return out;
 }

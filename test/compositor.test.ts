@@ -19,15 +19,25 @@ const bar: BarInfo = { shortId: 'abc', agent: 'claude' };
 function harness(rows = 6, cols = 20) {
   const writes: string[] = [];
   const toPty: string[] = [];
+  const sizes: Array<[number, number]> = [];
+  const selected: Array<{ id: string; index: number }> = [];
   const c = new Compositor({
     cols,
     rows,
     bar,
     write: (d) => writes.push(d),
     sendInput: (d) => toPty.push(typeof d === 'string' ? d : Buffer.from(d).toString('binary')),
+    onAgentSize: (co, ro) => sizes.push([co, ro]),
+    onSidebarSelect: (it, index) => selected.push({ id: it.id, index }),
   });
-  return { c, writes, toPty, out: () => writes.join('') };
+  return { c, writes, toPty, sizes, selected, out: () => writes.join('') };
 }
+
+const sandboxes = [
+  { id: 'aaaa1111', agent: 'claude', state: 'started', current: true },
+  { id: 'bbbb2222', agent: 'codex', state: 'started', current: false },
+  { id: 'cccc3333', agent: 'claude', state: 'stopped', current: false },
+];
 
 test('start paints a frame and the status bar on the bottom row', () => {
   const { c, out } = harness(6, 20);
@@ -55,6 +65,42 @@ test('keystrokes are forwarded to the PTY untouched when mouse is off', () => {
   c.start();
   c.input(Buffer.from('ls\r'));
   assert.equal(toPty.join(''), 'ls\r');
+  c.stop();
+});
+
+test('Ctrl-] toggles the sidebar and reflows the agent width', () => {
+  const { c, writes, sizes } = harness(10, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  writes.length = 0;
+  c.input(Buffer.from('\x1d')); // Ctrl-]
+  assert.ok(writes.join('').includes('SANDBOXES'), 'sidebar painted');
+  assert.equal(sizes.length, 1, 'agent reflow requested');
+  assert.ok(sizes[0][0] < 80, 'agent width shrank to make room');
+  c.input(Buffer.from('\x1d')); // close
+  assert.equal(sizes[1][0], 80, 'agent width restored on close');
+  c.stop();
+});
+
+test('open sidebar captures arrows and Enter activates the selection', () => {
+  const { c, selected } = harness(10, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  c.input(Buffer.from('\x1d')); // open (selection starts on current = index 0)
+  c.input(Buffer.from('\x1b[B')); // down
+  c.input(Buffer.from('\r')); // enter
+  assert.deepEqual(selected, [{ id: 'bbbb2222', index: 1 }]);
+  c.stop();
+});
+
+test('keystrokes are NOT forwarded to the agent while the sidebar is open', () => {
+  const { c, toPty } = harness(10, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  c.input(Buffer.from('\x1d'));
+  toPty.length = 0;
+  c.input(Buffer.from('x'));
+  assert.equal(toPty.join(''), '', 'navigation key swallowed, not sent to agent');
   c.stop();
 });
 

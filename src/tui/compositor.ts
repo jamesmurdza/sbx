@@ -22,20 +22,32 @@ import {
 } from './render.js';
 import { renderStatusBar, type BarInfo } from './statusbar.js';
 import {
+  renderSidebar,
+  windowStart,
+  SIDEBAR_WIDTH,
+  MIN_AGENT_COLS,
+  type SidebarItem,
+} from './sidebar.js';
+import { decodeKey } from './prompt.js';
+import {
   extractSgrMouse,
   translateToAgent,
   protocolWantsEvent,
   encodeMouse,
   trackMouseEncoding,
   wheelDirection,
+  isWheel,
   realTerminalMouseSequences,
   realTerminalMouseDisable,
   type MouseEncoding,
   type MouseProtocol,
+  type MouseEvent,
 } from './mouse.js';
 
 const { Terminal } = pkg;
 const ESC = '\x1b';
+/** Ctrl-] (GS, 0x1d) — toggles the sandbox sidebar. */
+const SIDEBAR_TOGGLE = '\x1d';
 
 export interface CompositorOptions {
   cols: number;
@@ -47,6 +59,10 @@ export interface CompositorOptions {
   sendInput: (data: string | Uint8Array) => void;
   /** Number of scrollback lines to retain locally. */
   scrollback?: number;
+  /** Called when the agent's drawable area changes size (resize / sidebar toggle). */
+  onAgentSize?: (cols: number, rows: number) => void;
+  /** Called when a sidebar row is activated (Enter / click). */
+  onSidebarSelect?: (item: SidebarItem, index: number) => void;
 }
 
 /** Clamps a scrollback offset to [0, max]. */
@@ -68,6 +84,11 @@ export class Compositor {
   private prevFrame: Frame | null = null;
   private prevBar = '';
   private live = '';
+
+  private sidebarOpen = false;
+  private sidebarItems: SidebarItem[] = [];
+  private sidebarSelected = 0;
+  private prevSidebar: string[] | null = null;
 
   private mouseEncoding: MouseEncoding = 'default';
   private realMouseProtocol: MouseProtocol = 'none';
@@ -119,26 +140,64 @@ export class Compositor {
     });
   }
 
-  /** Handles a stdin chunk: bridges mouse, scrolls, or forwards keystrokes. */
+  /** Handles a stdin chunk: bridges mouse, drives the sidebar, or forwards keys. */
   input(chunk: Buffer): void {
     const s = chunk.toString('binary');
     const { events, rest } = extractSgrMouse(s);
-    if (rest) {
-      // Typing while scrolled back snaps the viewport to the live bottom.
-      if (this.scrollOffset > 0) this.follow();
-      this.opts.sendInput(Buffer.from(rest, 'binary'));
+    for (const ev of events) this.handleMouse(ev);
+    if (!rest) return;
+    // Ctrl-] toggles the sidebar.
+    if (rest.includes(SIDEBAR_TOGGLE)) {
+      this.toggleSidebar();
+      const stripped = rest.split(SIDEBAR_TOGGLE).join('');
+      if (!this.sidebarOpen && stripped) this.opts.sendInput(Buffer.from(stripped, 'binary'));
+      return;
     }
+    // While the sidebar is open it captures navigation keys.
+    if (this.sidebarOpen) {
+      this.navInput(Buffer.from(rest, 'binary'));
+      return;
+    }
+    // Typing while scrolled back snaps the viewport to the live bottom.
+    if (this.scrollOffset > 0) this.follow();
+    this.opts.sendInput(Buffer.from(rest, 'binary'));
+  }
+
+  private handleMouse(ev: MouseEvent): void {
+    const w = this.sidebarWidth();
     const protocol = this.mouseProtocol();
-    for (const ev of events) {
-      const dir = wheelDirection(ev);
-      // Wheel while the agent is NOT tracking the wheel → local scrollback.
-      if (dir !== 0 && protocol === 'none') {
-        this.scrollBy(dir * 3);
-        continue;
-      }
-      const mapped = translateToAgent(ev, this.rows - 1);
-      if (!mapped || !protocolWantsEvent(mapped, protocol)) continue;
-      this.opts.sendInput(encodeMouse(mapped, this.mouseEncoding));
+    const dir = wheelDirection(ev);
+    // Wheel over the sidebar, or when the agent isn't tracking it → scrollback.
+    if (dir !== 0 && (protocol === 'none' || ev.col <= w)) {
+      this.scrollBy(dir * 3);
+      return;
+    }
+    // Clicks in the sidebar band select a row (and never reach the agent).
+    if (w > 0 && ev.col <= w) {
+      if (ev.pressed && !ev.motion && !isWheel(ev)) this.selectByRow(ev.row);
+      return;
+    }
+    const mapped = translateToAgent(ev, this.rows - 1, w);
+    if (!mapped || !protocolWantsEvent(mapped, protocol)) return;
+    this.opts.sendInput(encodeMouse(mapped, this.mouseEncoding));
+  }
+
+  private navInput(buf: Buffer): void {
+    switch (decodeKey(buf)) {
+      case 'up':
+        this.moveSelection(-1);
+        break;
+      case 'down':
+        this.moveSelection(1);
+        break;
+      case 'enter':
+        this.activateSelection();
+        break;
+      case 'cancel':
+        this.toggleSidebar(); // Esc / q closes the sidebar
+        break;
+      default:
+        break;
     }
   }
 
@@ -148,16 +207,29 @@ export class Compositor {
     this.scheduleRender();
   }
 
-  /** Resizes the emulator + screen and forces a full repaint. */
+  /** Resizes to a new terminal size and forces a full repaint. */
   resize(cols: number, rows: number): void {
     this.cols = cols;
     this.rows = rows;
-    this.term.resize(cols, Math.max(1, rows - 1));
-    this.prevFrame = null; // force full repaint
-    this.prevBar = '';
     this.scrollOffset = 0;
-    this.opts.write(`${ESC}[2J`);
-    this.renderNow();
+    this.reflow();
+  }
+
+  /** Updates the list of sandboxes shown in the sidebar. */
+  setSandboxes(items: SidebarItem[]): void {
+    this.sidebarItems = items;
+    if (this.sidebarSelected >= items.length) this.sidebarSelected = Math.max(0, items.length - 1);
+    if (this.sidebarOpen) this.scheduleRender();
+  }
+
+  /** Opens/closes the sidebar, reflowing the agent area to fit. */
+  toggleSidebar(): void {
+    this.sidebarOpen = !this.sidebarOpen;
+    if (this.sidebarOpen) {
+      const cur = this.sidebarItems.findIndex((it) => it.current);
+      this.sidebarSelected = cur >= 0 ? cur : 0;
+    }
+    this.reflow();
   }
 
   /** Restores the real terminal and disposes the emulator. */
@@ -173,6 +245,54 @@ export class Compositor {
   }
 
   // --- internals ------------------------------------------------------------
+
+  /** Sidebar band width (0 when closed, or when the terminal is too narrow). */
+  private sidebarWidth(): number {
+    if (!this.sidebarOpen) return 0;
+    const w = Math.min(SIDEBAR_WIDTH, this.cols - MIN_AGENT_COLS);
+    return w >= 12 ? w : 0;
+  }
+
+  /** Columns available to the agent (screen minus the sidebar band). */
+  private agentCols(): number {
+    return Math.max(1, this.cols - this.sidebarWidth());
+  }
+
+  /** Resizes the emulator + PTY to the current agent area and full-repaints. */
+  private reflow(): void {
+    const aCols = this.agentCols();
+    const aRows = Math.max(1, this.rows - 1);
+    this.term.resize(aCols, aRows);
+    this.opts.onAgentSize?.(aCols, aRows);
+    this.prevFrame = null;
+    this.prevSidebar = null;
+    this.prevBar = '';
+    this.opts.write(`${ESC}[2J`);
+    this.renderNow();
+  }
+
+  private moveSelection(delta: number): void {
+    const n = this.sidebarItems.length;
+    if (!n) return;
+    this.sidebarSelected = Math.max(0, Math.min(this.sidebarSelected + delta, n - 1));
+    this.scheduleRender();
+  }
+
+  private activateSelection(): void {
+    const it = this.sidebarItems[this.sidebarSelected];
+    if (it) this.opts.onSidebarSelect?.(it, this.sidebarSelected);
+  }
+
+  /** Maps a clicked screen row (1-based) to a sidebar item and selects it. */
+  private selectByRow(screenRow: number): void {
+    const rows = Math.max(0, this.rows - 2); // row 1 is the title
+    const start = windowStart(this.sidebarSelected, this.sidebarItems.length, rows);
+    const idx = start + (screenRow - 2);
+    if (idx >= 0 && idx < this.sidebarItems.length) {
+      this.sidebarSelected = idx;
+      this.scheduleRender();
+    }
+  }
 
   private mouseProtocol(): MouseProtocol {
     return (this.term.modes?.mouseTrackingMode ?? 'none') as MouseProtocol;
@@ -211,24 +331,39 @@ export class Compositor {
 
   private renderNow(): void {
     if (this.disposed || this.paused) return;
-    const agentRows = this.rows - 1;
+    const w = this.sidebarWidth();
+    const agentRows = Math.max(1, this.rows - 1);
     const buf = this.term.buffer.active;
     const top = viewportTop(buf.baseY, this.scrollOffset);
-    const frame = frameFromBuffer(buf as never, top, this.cols, agentRows);
+    const frame = frameFromBuffer(buf as never, top, this.agentCols(), agentRows);
 
-    let out = renderFrameDiff(this.prevFrame, frame, 1);
+    // Agent screen, painted to the right of the sidebar band.
+    let out = renderFrameDiff(this.prevFrame, frame, 1, w + 1);
     this.prevFrame = frame;
 
-    // Status bar on the reserved bottom row.
+    // Sidebar band on the left, diffed line by line.
+    if (w > 0) {
+      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows);
+      for (let r = 0; r < lines.length; r++) {
+        if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
+        out += `${ESC}[${r + 1};1H` + lines[r];
+      }
+      this.prevSidebar = lines;
+    } else {
+      this.prevSidebar = null;
+    }
+
+    // Status bar on the reserved bottom row (full width).
     const barText = renderStatusBar(this.opts.bar, this.statusLine(), this.cols);
     if (barText !== this.prevBar) {
       out += `${ESC}[${this.rows};1H${barText}`;
       this.prevBar = barText;
     }
 
-    // Cursor: only when live (not scrolled back) and the agent shows it.
-    if (this.scrollOffset === 0 && !this.cursorHidden) {
-      const cx = Math.min(this.cols, buf.cursorX + 1);
+    // Cursor: in the agent area (offset by the sidebar), only when live, the
+    // agent shows it, and the sidebar isn't capturing navigation.
+    if (!this.sidebarOpen && this.scrollOffset === 0 && !this.cursorHidden) {
+      const cx = Math.min(this.cols, buf.cursorX + 1 + w);
       const cy = Math.min(agentRows, buf.cursorY + 1);
       out += `${ESC}[${cy};${cx}H${ESC}[?25h`;
     } else {

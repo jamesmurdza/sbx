@@ -86,15 +86,17 @@ export function extractSgrMouse(data: string): { events: MouseEvent[]; rest: str
 }
 
 /**
- * Maps a real-terminal mouse event into the agent's coordinate space, given the
- * agent occupies rows 1..agentRows (the bottom row is the status bar). Returns
- * null when the event lands on the status bar (it is swallowed). `scrollTop` is
- * how many lines the local scrollback viewport is scrolled up by; it does not
- * affect coordinates forwarded to the agent (the agent only knows its viewport).
+ * Maps a real-terminal mouse event into the agent's coordinate space. The agent
+ * occupies rows 1..agentRows (the bottom row is the status bar) and columns
+ * (colOffset+1)..end (a left sidebar of `colOffset` columns sits before it).
+ * Returns null when the event lands outside the agent area (status bar or
+ * sidebar), so it is swallowed rather than forwarded with bad coordinates.
  */
-export function translateToAgent(e: MouseEvent, agentRows: number): MouseEvent | null {
+export function translateToAgent(e: MouseEvent, agentRows: number, colOffset = 0): MouseEvent | null {
   if (e.row > agentRows) return null; // on the status bar
-  return e;
+  const col = e.col - colOffset;
+  if (col < 1) return null; // on the sidebar
+  return col === e.col ? e : { ...e, col };
 }
 
 /** Whether the agent's protocol wants this event forwarded at all. */
