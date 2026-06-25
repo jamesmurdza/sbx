@@ -1,0 +1,31 @@
+{
+  "name": "teleport-cli",
+  "version": "0.1.0",
+  "description": "Teleport into a fresh Daytona sandbox and run an AI coding agent, with credential import, auto git push, and detach/reconnect.",
+  "type": "module",
+  "bin": {
+    "teleport": "./bin/teleport.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "node --test --import tsx ./test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node bin/teleport.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@daytonaio/sdk": "^0.110.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
