@@ -144,19 +144,27 @@ export async function startNew(opts: StartOptions): Promise<void> {
     }
   }
 
-  // Pre-trust the working directory so Claude skips its folder-trust prompt.
+  // Pre-accept Claude's folder-trust (and bypass-permissions) prompts.
   if (opts.command === 'claude') {
-    await trustClaudeDir(sandbox, cwdInSandbox ?? (await sandboxHome(sandbox)));
+    const dir = cwdInSandbox ?? (await sandboxHome(sandbox));
+    await prepareClaudeConfig(sandbox, dir, opts.yolo !== false);
   }
 
   await runInteractive(sandbox, runCommand, cwdInSandbox, env, bar, autopush);
 }
 
 /**
- * Marks a directory as trusted in the sandbox's ~/.claude.json so Claude does
- * not show its "Is this a project you trust?" prompt on launch. Best-effort.
+ * Pre-seeds the sandbox's ~/.claude.json so Claude skips its launch prompts:
+ *  - the per-directory "Is this a project you trust?" dialog, and
+ *  - the global "Bypass Permissions mode" acceptance (when we pass
+ *    --dangerously-skip-permissions, i.e. not --safe).
+ * Best-effort; failures are logged and the prompts simply appear.
  */
-async function trustClaudeDir(sandbox: import('@daytonaio/sdk').Sandbox, dir: string): Promise<void> {
+async function prepareClaudeConfig(
+  sandbox: import('@daytonaio/sdk').Sandbox,
+  dir: string,
+  bypass: boolean,
+): Promise<void> {
   try {
     const home = await sandboxHome(sandbox);
     const confPath = `${home}/.claude.json`;
@@ -165,10 +173,11 @@ async function trustClaudeDir(sandbox: import('@daytonaio/sdk').Sandbox, dir: st
       `let c={};try{c=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}` +
       `c.projects=c.projects||{};const d=${JSON.stringify(dir)};` +
       `c.projects[d]={...(c.projects[d]||{}),hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true};` +
+      (bypass ? `c.bypassPermissionsModeAccepted=true;` : '') +
       `fs.writeFileSync(p,JSON.stringify(c,null,2));`;
     await run(sandbox, `node -e '${js.replace(/'/g, `'\\''`)}'`);
   } catch (err) {
-    log(`note: could not pre-trust ${dir} for claude (${err instanceof Error ? err.message : err}).`);
+    log(`note: could not pre-accept claude prompts for ${dir} (${err instanceof Error ? err.message : err}).`);
   }
 }
 
