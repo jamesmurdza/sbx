@@ -167,6 +167,35 @@ test('deleting the current sandbox with no other sandbox ends the session', () =
   c.stop();
 });
 
+test('deleting another sandbox removes it optimistically and survives a stale refresh', async () => {
+  const { c, writes, inlineActions } = harness(14, 80);
+  const flush = () => new Promise((res) => setTimeout(res, 25));
+  c.start();
+  c.setSandboxes(sandboxes); // aaaa(cur), bbbb, cccc
+  c.input(Buffer.from('\x1d'));
+  c.input(Buffer.from('\x1b[B')); // select bbbb2222
+  c.input(Buffer.from('d'));
+  c.input(Buffer.from('y')); // confirm delete of bbbb2222
+  assert.deepEqual(inlineActions, [{ kind: 'delete', id: 'bbbb2222' }]);
+
+  // A stale refresh still listing bbbb keeps it hidden (no flicker/reappear).
+  await flush();
+  c.setSandboxes(sandboxes);
+  writes.length = 0;
+  await flush();
+  assert.ok(!writes.join('').includes('bbbb2222'), 'optimistically removed despite stale refresh');
+
+  // Server confirms bbbb gone → the filter clears.
+  c.setSandboxes([sandboxes[0], sandboxes[2]]);
+  await flush();
+  // If a sandbox with that id appears again, it's shown.
+  writes.length = 0;
+  c.setSandboxes(sandboxes);
+  await flush();
+  assert.ok(writes.join('').includes('bbbb2222'), 'filter cleared after server confirmed deletion');
+  c.stop();
+});
+
 test('delete asks for confirmation; y confirms, anything else cancels', () => {
   const { c, sessionActions, inlineActions } = harness(12, 80);
   c.start();

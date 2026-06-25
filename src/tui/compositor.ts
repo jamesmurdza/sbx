@@ -116,6 +116,8 @@ export class Compositor {
   private sidebarSelected = 0;
   private prevSidebar: string[] | null = null;
   private pendingDelete: SidebarItem | null = null;
+  /** Sandboxes deleted locally, filtered out until the server stops reporting them. */
+  private readonly removedIds = new Set<string>();
   /** A modal shown in the agent pane (sidebar/bar untouched). */
   private modal: ModalState | null = null;
 
@@ -317,10 +319,16 @@ export class Compositor {
     this.pendingDelete = null;
     if (it) {
       if (it.current) {
-        // Hand off to a neighbour so deleting the current one keeps the flow.
+        // Hand off to a neighbour so deleting the current one keeps the flow;
+        // keep it filtered until the server confirms it's gone.
+        this.removedIds.add(it.id);
         const neighbour = this.sidebarItems.find((s) => !s.current) ?? null;
         this.opts.onDeleteCurrent?.(it, neighbour);
       } else {
+        // Optimistically drop it from the list now — the slow API call + refresh
+        // happen in the background.
+        this.removedIds.add(it.id);
+        this.applyList(this.sidebarItems.filter((s) => s.id !== it.id));
         this.opts.onDeleteOther?.(it);
       }
     }
@@ -352,7 +360,19 @@ export class Compositor {
    * the selected sandbox is gone (e.g. just deleted), the cursor stays in the
    * same slot — landing on the neighbour — rather than jumping elsewhere.
    */
+  /** Applies a *server* sandbox list, honouring optimistic deletions. */
   setSandboxes(items: SidebarItem[]): void {
+    // Forget optimistically-removed ids the server no longer reports (truly
+    // gone), and keep filtering the rest until then (no flicker/reappear).
+    for (const id of this.removedIds) {
+      if (!items.some((it) => it.id === id)) this.removedIds.delete(id);
+    }
+    if (this.removedIds.size) items = items.filter((it) => !this.removedIds.has(it.id));
+    this.applyList(items);
+  }
+
+  /** Replaces the list and reconciles the selection (by id) — no removedIds work. */
+  private applyList(items: SidebarItem[]): void {
     const prevId = this.sidebarItems[this.sidebarSelected]?.id;
     this.sidebarItems = items;
     let idx = prevId ? items.findIndex((it) => it.id === prevId) : -1;
