@@ -18,6 +18,7 @@ import {
   renderFrameDiff,
   frameFromBuffer,
   blankFrame,
+  placeholderFrame,
   type Frame,
 } from './render.js';
 import { renderStatusBar, type BarInfo } from './statusbar.js';
@@ -96,6 +97,9 @@ export class Compositor {
   private prevFrame: Frame | null = null;
   private prevBar = '';
   private live = '';
+  private bar: BarInfo;
+  /** When set, the agent area shows this centered message instead of the screen. */
+  private agentPlaceholder: string | null = null;
 
   private sidebarOpen = false;
   private sidebarItems: SidebarItem[] = [];
@@ -117,6 +121,7 @@ export class Compositor {
     this.opts = opts;
     this.cols = opts.cols;
     this.rows = opts.rows;
+    this.bar = opts.bar;
     this.term = new Terminal({
       cols: opts.cols,
       rows: Math.max(1, opts.rows - 1),
@@ -144,6 +149,7 @@ export class Compositor {
 
   /** Feeds a chunk of agent output into the emulator and schedules a repaint. */
   feed(data: Uint8Array | string): void {
+    this.agentPlaceholder = null; // first output replaces any "connecting…" notice
     const text = typeof data === 'string' ? data : Buffer.from(data).toString('binary');
     this.mouseEncoding = trackMouseEncoding(text, this.mouseEncoding);
     this.trackCursorVisibility(text);
@@ -301,6 +307,34 @@ export class Compositor {
     if (!this.sidebarOpen) this.toggleSidebar();
   }
 
+  /** Closes the sidebar if open (e.g. when landing in a freshly-switched agent). */
+  closeSidebar(): void {
+    if (this.sidebarOpen) this.toggleSidebar();
+  }
+
+  /** Updates the status-bar fields (e.g. after switching to a different sandbox). */
+  setBar(bar: BarInfo): void {
+    this.bar = bar;
+    this.live = '';
+    this.prevBar = '';
+    this.scheduleRender();
+  }
+
+  /**
+   * Clears the agent screen for a new sandbox and shows a centered placeholder
+   * (e.g. "connecting…") until the new agent's first output arrives. This lets a
+   * switch happen *inside* the compositor — the sidebar and chrome stay put — with
+   * no flash to a bare terminal.
+   */
+  resetAgent(placeholder = ''): void {
+    this.term.reset();
+    this.prevFrame = null;
+    this.scrollOffset = 0;
+    this.cursorHidden = false;
+    this.agentPlaceholder = placeholder;
+    this.renderNow();
+  }
+
   /** Opens/closes the sidebar, reflowing the agent area to fit. */
   toggleSidebar(): void {
     this.sidebarOpen = !this.sidebarOpen;
@@ -415,7 +449,10 @@ export class Compositor {
     const agentRows = Math.max(1, this.rows - 1);
     const buf = this.term.buffer.active;
     const top = viewportTop(buf.baseY, this.scrollOffset);
-    const frame = frameFromBuffer(buf as never, top, this.agentCols(), agentRows);
+    const frame =
+      this.agentPlaceholder !== null
+        ? placeholderFrame(this.agentPlaceholder, this.agentCols(), agentRows)
+        : frameFromBuffer(buf as never, top, this.agentCols(), agentRows);
 
     // Agent screen, painted to the right of the sidebar band.
     let out = renderFrameDiff(this.prevFrame, frame, 1, w + 1);
@@ -437,15 +474,20 @@ export class Compositor {
     }
 
     // Status bar on the reserved bottom row (full width).
-    const barText = renderStatusBar(this.opts.bar, this.statusLine(), this.cols);
+    const barText = renderStatusBar(this.bar, this.statusLine(), this.cols);
     if (barText !== this.prevBar) {
       out += `${ESC}[${this.rows};1H${barText}`;
       this.prevBar = barText;
     }
 
     // Cursor: in the agent area (offset by the sidebar), only when live, the
-    // agent shows it, and the sidebar isn't capturing navigation.
-    if (!this.sidebarOpen && this.scrollOffset === 0 && !this.cursorHidden) {
+    // agent shows it, the sidebar isn't capturing navigation, and no placeholder.
+    if (
+      !this.sidebarOpen &&
+      this.scrollOffset === 0 &&
+      !this.cursorHidden &&
+      this.agentPlaceholder === null
+    ) {
       const cx = Math.min(this.cols, buf.cursorX + 1 + w);
       const cy = Math.min(agentRows, buf.cursorY + 1);
       out += `${ESC}[${cy};${cx}H${ESC}[?25h`;

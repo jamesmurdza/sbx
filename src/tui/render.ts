@@ -68,6 +68,16 @@ export function blankFrame(cols: number, rows: number): Frame {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ...BLANK })));
 }
 
+/** A blank frame with `text` centered (dimmed) — used for "connecting…" notices. */
+export function placeholderFrame(text: string, cols: number, rows: number): Frame {
+  const frame = blankFrame(cols, rows);
+  const chars = [...text].slice(0, cols);
+  const row = Math.floor((rows - 1) / 2);
+  const col0 = Math.max(0, Math.floor((cols - chars.length) / 2));
+  for (let i = 0; i < chars.length; i++) frame[row][col0 + i] = { ch: chars[i], sgr: '2' };
+  return frame;
+}
+
 /**
  * Minimal subset of xterm's IBufferCell that we read. Declared locally so this
  * module needs no xterm type import (and so the adapter is easy to fake in tests).

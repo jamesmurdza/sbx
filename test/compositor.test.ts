@@ -217,6 +217,32 @@ test('openSidebar opens the sidebar (idempotently) as the entry menu', () => {
   c.stop();
 });
 
+test('resetAgent shows a placeholder until the next agent output arrives', async () => {
+  const { c, writes } = harness(8, 40);
+  c.start();
+  writes.length = 0;
+  c.resetAgent('connecting…');
+  assert.ok(writes.join('').includes('connecting…'), 'placeholder shown');
+  writes.length = 0;
+  c.feed('\x1b[1;1HNEWAGENT');
+  for (let i = 0; i < 50 && !writes.join('').includes('NEWAGENT'); i++) {
+    await new Promise((res) => setTimeout(res, 10));
+  }
+  assert.ok(writes.join('').includes('NEWAGENT'), 'agent output replaces the placeholder');
+  c.stop();
+});
+
+test('setBar updates the status bar fields without a full restart', () => {
+  const { c, writes } = harness(8, 40);
+  c.start();
+  writes.length = 0;
+  c.setBar({ shortId: 'zzzz9999', agent: 'gemini' });
+  // bar repaint is coalesced; force it via a reset which renders synchronously
+  c.resetAgent('');
+  assert.ok(writes.join('').includes('zzzz9999'), 'new sandbox id shown in the bar');
+  c.stop();
+});
+
 test('stop restores the cursor and leaves the alt screen', () => {
   const { c, writes } = harness();
   c.start();
