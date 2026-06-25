@@ -29,7 +29,7 @@ import { AutoPush, type PushStatus } from './git/autopush.js';
 import { TeleportSession, statusBridge, type AttachSpec, type SessionDeps } from './session.js';
 import type { BarInfo } from './tui/statusbar.js';
 import type { SidebarItem } from './tui/sidebar.js';
-import { overlayMenu, overlayConfirm } from './tui/overlay.js';
+import { overlayMenu, overlayConfirm, overlayPrompt } from './tui/overlay.js';
 
 function log(msg: string): void {
   process.stdout.write(`teleport: ${msg}\n`);
@@ -47,6 +47,26 @@ interface Prepared {
   spec: AttachSpec;
   autopush?: AutoPush;
 }
+
+/**
+ * How the new-sandbox flow presents its modals and progress. At startup it uses
+ * the bare terminal (fullscreen overlays, stdout logging); in-session it floats
+ * overlays over the live compositor and shows progress in the agent placeholder.
+ */
+interface Present {
+  fullscreen: boolean;
+  wrap<T>(fn: () => Promise<T>): Promise<T>;
+  note(msg: string): void;
+}
+
+const TERMINAL_PRESENT: Present = {
+  fullscreen: true,
+  wrap: (fn) => fn(),
+  note: (m) => log(m),
+};
+
+/** Agents offered in the in-session "new sandbox" picker. */
+const NEW_AGENTS = ['claude', 'codex', 'opencode'];
 
 /** Returns the live sandbox list as sidebar items, marking the attached one.
  * Sandboxes being torn down (or errored) are dropped so a just-deleted one
@@ -70,7 +90,7 @@ export async function startNew(opts: StartOptions): Promise<void> {
 }
 
 /** Builds the first attachment for a brand-new sandbox, or null if cancelled. */
-async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
+async function prepareNew(opts: StartOptions, present: Present = TERMINAL_PRESENT): Promise<Prepared | null> {
   const cwd = process.cwd();
   const repo = await inspectLocalRepo(cwd);
 
@@ -81,56 +101,57 @@ async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
 
   const hasRepo = !!(repo && repo.originUrl);
   if (!hasRepo) {
-    const ok = await overlayConfirm(
-      'Not in a git repo. Create a new blank sandbox with no repo?',
-      { fullscreen: true },
+    const ok = await present.wrap(() =>
+      overlayConfirm('Not in a git repo. Create a new blank sandbox with no repo?', {
+        fullscreen: present.fullscreen,
+      }),
     );
     if (!ok) {
-      log('cancelled.');
+      present.note('cancelled.');
       return null;
     }
-  } else if (repo) {
-    if (repo.dirty || repo.ahead > 0) {
-      const bits = [
-        repo.dirty ? 'uncommitted changes' : null,
-        repo.ahead > 0 ? `${repo.ahead} unpushed commit(s)` : null,
-      ]
-        .filter(Boolean)
-        .join(' and ');
-      log(`warning: ${bits} won't be in the sandbox (it clones from origin).`);
-    }
+  } else if (repo && (repo.dirty || repo.ahead > 0)) {
+    const bits = [
+      repo.dirty ? 'uncommitted changes' : null,
+      repo.ahead > 0 ? `${repo.ahead} unpushed commit(s)` : null,
+    ]
+      .filter(Boolean)
+      .join(' and ');
+    present.note(`warning: ${bits} won't be in the sandbox (it clones from origin).`);
   }
 
   // Choose credentials (modal) up front; applied after the sandbox exists.
-  // Escape (null) quits; the "Neither" option ('none') proceeds without creds.
+  // Escape (null) quits; the "Skip" option ('none') proceeds without creds.
   const agent = knownAgent(opts.command);
   const sources = agent ? await discoverSources(agent) : [];
   type CredChoice = (typeof sources)[number] | 'none';
   let chosen: (typeof sources)[number] | null = null;
   if (sources.length > 0) {
-    const picked = await overlayMenu<CredChoice>(
-      `${opts.command} credentials`,
-      [
-        ...sources.map((s) => ({ label: s.label, detail: s.detail, value: s as CredChoice })),
-        { label: 'Skip', value: 'none' as CredChoice },
-      ],
-      { fullscreen: true },
+    const picked = await present.wrap(() =>
+      overlayMenu<CredChoice>(
+        `${opts.command} credentials`,
+        [
+          ...sources.map((s) => ({ label: s.label, detail: s.detail, value: s as CredChoice })),
+          { label: 'Skip', value: 'none' as CredChoice },
+        ],
+        { fullscreen: present.fullscreen },
+      ),
     );
     if (picked === null) {
-      log('cancelled.');
+      present.note('cancelled.');
       return null;
     }
     chosen = picked === 'none' ? null : picked;
   }
 
-  log(`creating sandbox on the background-agents snapshot…`);
+  present.note('creating sandbox…');
   const sandbox = await createSandbox({
     command: runCommand,
     agent: opts.command,
     repoSlug: repo?.slug ?? null,
     baseBranch: repo?.branch ?? null,
   });
-  log(`sandbox ${sandbox.id} created; starting…`);
+  present.note(`sandbox ${sandbox.id.slice(0, 8)} created; starting…`);
   await ensureStarted(sandbox);
 
   // Apply credential choice now that we have a sandbox. Start from the agent's
@@ -139,8 +160,7 @@ async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
   if (chosen) {
     const result = await applyCredential(sandbox, chosen.payload);
     env = { ...env, ...result.env };
-    log(`${opts.command} credentials: ${result.summary}`);
-    if (!result.ok) log('the agent may prompt you to log in because the credential file did not verify.');
+    present.note(`${opts.command} credentials: ${result.summary}`);
   }
 
   // Clone repo + create teleport branch + start auto-push.
@@ -156,9 +176,10 @@ async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
   if (hasRepo && repo) {
     const creds = await resolveGitHubToken();
     if (!creds) {
-      log('warning: no GitHub token found — cloning may fail for private repos and auto-push is disabled.');
+      present.note('warning: no GitHub token — clone may fail for private repos; auto-push disabled.');
     }
     try {
+      present.note('cloning repo…');
       const setup = await setupRepo(sandbox, {
         originUrl: repo.originUrl!,
         baseBranch: repo.branch ?? 'main',
@@ -167,7 +188,6 @@ async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
       cwdInSandbox = setup.repoPath;
       bar.branch = setup.branch;
       await tagBranch(sandbox, setup.branch);
-      log(`cloned ${repo.slug} and checked out ${setup.branch}.`);
       if (creds) {
         autopush = new AutoPush(sandbox, {
           repoPath: setup.repoPath,
@@ -178,7 +198,7 @@ async function prepareNew(opts: StartOptions): Promise<Prepared | null> {
         autopush.start();
       }
     } catch (err) {
-      log(`warning: repo setup failed: ${err instanceof Error ? err.message : String(err)}`);
+      present.note(`warning: repo setup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -361,6 +381,20 @@ async function runSessionLoop(first: Prepared | null): Promise<void> {
         continue;
       }
 
+      if (outcome === 'new') {
+        const created = await createInSession(session);
+        if (created) {
+          current = created;
+        } else if (current) {
+          // Cancelled: re-attach the current sandbox with the sidebar open.
+          const id = current.spec.sandbox.id;
+          current = await getSession(id)
+            .then((s) => prepareExisting(s, true))
+            .catch(() => current);
+        }
+        continue;
+      }
+
       if (outcome === 'deleted') {
         // The last sandbox: delete it and drop to idle (the menu keeps working).
         if (current) await current.spec.sandbox.delete().catch(() => {});
@@ -380,6 +414,46 @@ async function runSessionLoop(first: Prepared | null): Promise<void> {
   } finally {
     session.dispose();
     if (endMsg) log(endMsg);
+  }
+}
+
+/** Sentinel value for the "custom command" choice in the new-agent picker. */
+const CUSTOM_CHOICE = ' custom';
+
+/** Asks which agent/command to run for a new sandbox (over the live compositor). */
+async function pickNewCommand(session: TeleportSession): Promise<string | null> {
+  const choice = await session.modal(() =>
+    overlayMenu<string>(
+      'New sandbox — choose an agent',
+      [
+        ...NEW_AGENTS.map((a) => ({ label: a, value: a })),
+        { label: 'Custom command…', value: CUSTOM_CHOICE },
+      ],
+      { fullscreen: false },
+    ),
+  );
+  if (choice === null) return null;
+  if (choice !== CUSTOM_CHOICE) return choice;
+  return session.modal(() =>
+    overlayPrompt('Custom command', { fullscreen: false, placeholder: 'e.g. aider --model gpt-4o' }),
+  );
+}
+
+/** Creates a new sandbox from the in-session sidebar, keeping the chrome up. */
+async function createInSession(session: TeleportSession): Promise<Prepared | null> {
+  const command = await pickNewCommand(session);
+  if (!command) return null;
+  const [cmd, ...args] = command.trim().split(/\s+/);
+  const present: Present = {
+    fullscreen: false,
+    wrap: (fn) => session.modal(fn),
+    note: (m) => session.connecting(m),
+  };
+  try {
+    return await prepareNew({ command: cmd, args, yolo: true }, present);
+  } catch (err) {
+    session.connecting(`create failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
 }
 

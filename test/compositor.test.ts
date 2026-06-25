@@ -24,6 +24,7 @@ function harness(rows = 6, cols = 20) {
   const sessionActions: string[] = [];
   const inlineActions: Array<{ kind: string; id: string }> = [];
   const deleteCurrent: Array<{ id: string; neighbour: string | null }> = [];
+  const newCount: number[] = [];
   const c = new Compositor({
     cols,
     rows,
@@ -33,10 +34,11 @@ function harness(rows = 6, cols = 20) {
     onAgentSize: (co, ro) => sizes.push([co, ro]),
     onSidebarSelect: (it, index) => selected.push({ id: it.id, index }),
     onSessionAction: (a) => sessionActions.push(a),
+    onNew: () => newCount.push(1),
     onDeleteCurrent: (cur, nb) => deleteCurrent.push({ id: cur.id, neighbour: nb?.id ?? null }),
     onDeleteOther: (it) => inlineActions.push({ kind: 'delete', id: it.id }),
   });
-  return { c, writes, toPty, sizes, selected, sessionActions, deleteCurrent, inlineActions, out: () => writes.join('') };
+  return { c, writes, toPty, sizes, selected, sessionActions, deleteCurrent, inlineActions, newCount, out: () => writes.join('') };
 }
 
 const sandboxes = [
@@ -99,13 +101,15 @@ test('open sidebar captures arrows and Enter activates the selection', () => {
   c.stop();
 });
 
-test('x detaches the session', () => {
-  const { c, sessionActions } = harness(12, 80);
+test('x detaches the session; n requests a new sandbox', () => {
+  const { c, sessionActions, newCount } = harness(12, 80);
   c.start();
   c.setSandboxes(sandboxes); // index 0 is current
   c.input(Buffer.from('\x1d')); // open (selection starts on current = 0)
   c.input(Buffer.from('x')); // detach the whole session
   assert.deepEqual(sessionActions, ['detached']);
+  c.input(Buffer.from('n')); // request a new sandbox
+  assert.equal(newCount.length, 1);
   c.stop();
 });
 

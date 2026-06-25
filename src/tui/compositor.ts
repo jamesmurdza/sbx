@@ -66,6 +66,8 @@ export interface CompositorOptions {
   onSidebarSelect?: (item: SidebarItem, index: number) => void;
   /** Detaches and exits the current session (the `x` action). */
   onSessionAction?: (outcome: 'detached') => void;
+  /** Creates a new sandbox (the `n` action). */
+  onNew?: () => void;
   /**
    * Deletes the *current* sandbox. `neighbour` is another sandbox to hand off to
    * so the session (and sidebar) can continue, or null if none exists.
@@ -76,7 +78,7 @@ export interface CompositorOptions {
 }
 
 /** Keybinding legend shown in the sidebar footer. */
-const SIDEBAR_LEGEND = '↵ open  d del  x exit';
+const SIDEBAR_LEGEND = '↵ open  n new  d del  x exit';
 
 /** Clamps a scrollback offset to [0, max]. */
 export function clampScroll(offset: number, max: number): number {
@@ -210,6 +212,7 @@ export class Compositor {
       return;
     }
     // Action keys.
+    if (s === 'n' || s === 'N') return void this.opts.onNew?.();
     if (s === 'd') return this.askDelete();
     if (s === 'x' || s === 'X') return void this.opts.onSessionAction?.('detached');
     switch (decodeKey(buf)) {
@@ -515,8 +518,12 @@ export class Compositor {
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
+    // A modal overlay may have re-enabled autowrap / shown the cursor / dropped
+    // mouse reporting; re-assert the compositor's terminal modes before repaint.
+    this.opts.write(`${ESC}[?7l${ESC}[?25l` + realTerminalMouseSequences(this.realMouseProtocol));
     this.prevFrame = null;
     this.prevBar = '';
+    this.prevSidebar = null;
     this.renderNow();
   }
 }

@@ -57,9 +57,9 @@ export interface SessionDeps {
 
 /**
  * How an attach ended. 'switch'/'detached'/'ended' leave the sandbox running;
- * 'deleted' tells the caller to delete the sandbox.
+ * 'deleted' tells the caller to delete the sandbox; 'new' creates one.
  */
-export type AttachOutcome = 'switch' | 'detached' | 'ended' | 'deleted';
+export type AttachOutcome = 'switch' | 'detached' | 'ended' | 'deleted' | 'new';
 
 type Pty = Awaited<ReturnType<Sandbox['process']['createPty']>>;
 
@@ -158,6 +158,23 @@ export class TeleportSession {
   /** Shows a centered notice in the agent area (e.g. while a switch connects). */
   connecting(label: string): void {
     this.compositor?.resetAgent(label);
+  }
+
+  /**
+   * Runs a modal interaction (an overlay menu/prompt) over the live compositor:
+   * pauses painting, hands stdin to the overlay, and full-repaints on close — so
+   * the chrome stays put and the modal floats on top.
+   */
+  async modal<T>(fn: () => Promise<T>): Promise<T> {
+    this.compositor?.pause();
+    this.stdin.off('data', this.onStdin);
+    try {
+      return await fn();
+    } finally {
+      this.stdin.on('data', this.onStdin);
+      this.stdin.resume();
+      this.compositor?.resume();
+    }
   }
 
   /**
@@ -263,6 +280,7 @@ export class TeleportSession {
       onAgentSize: (c, r) => void this.currentPty?.resize(c, r).catch(() => {}),
       onSidebarSelect: (item) => this.onSelect(item),
       onSessionAction: (action) => this.settle?.(action),
+      onNew: () => this.settle?.('new'),
       onDeleteCurrent: (current, neighbour) => this.onDeleteCurrent(current, neighbour),
       onDeleteOther: (item) => this.onDeleteOther(item.id),
     });

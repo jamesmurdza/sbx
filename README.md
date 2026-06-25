@@ -79,12 +79,14 @@ teleport --safe claude     # -> claude   (prompts intact)
    and bridging mouse + scroll-wheel (with local scrollback). Press **Ctrl-]** (or
    **Ctrl-\\**) to toggle the **collapsible left sidebar** — the control center
    for all your sandboxes. The agent reflows to make room, and the sidebar
-   captures: **↑/↓** move · **Enter** switch to the selected sandbox · **d** delete
-   it (asks `y/n`) · **x** detach and exit · **Esc** close. Deleting the *current*
-   sandbox hands off to a neighbour so the flow continues; deleting *another* one
-   happens in place. You can also click a row to select it. Idle sandboxes
-   auto-stop (configurable via `TELEPORT_AUTOSTOP`) and restart on reconnect. All
-   other keys pass straight through to the agent.
+   captures: **↑/↓** move · **Enter** switch to the selected sandbox · **n** new
+   sandbox (pick claude/codex/opencode or a custom command) · **d** delete it
+   (asks `y/n`) · **x** detach and exit · **Esc** close. The status bar and sidebar
+   stay up even with no agent attached (and while a new one is creating), so the
+   menu always works. Deleting the *current* sandbox hands off to a neighbour;
+   deleting *another* happens in place. Idle sandboxes auto-stop (configurable via
+   `TELEPORT_AUTOSTOP`) and restart on reconnect. All other keys pass straight
+   through to the agent.
 
 ### One menu: the sidebar
 

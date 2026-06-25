@@ -223,6 +223,89 @@ export async function overlayMenu<T>(
   });
 }
 
+/**
+ * A centered single-line text prompt. Resolves to the entered string, or null if
+ * cancelled (Esc/Ctrl-C). Mirrors overlayMenu's rendering (full-repaint in
+ * fullscreen, floating otherwise) so it is robust on finicky terminals.
+ */
+export async function overlayPrompt(
+  title: string,
+  opts: OverlayOptions & { placeholder?: string } = {},
+): Promise<string | null> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || !stdin.setRawMode) return null;
+
+  let value = '';
+  const hint = 'Enter submit · Esc cancel';
+
+  const draw = () => {
+    const cols = process.stdout.columns ?? 80;
+    const rows = process.stdout.rows ?? 24;
+    const shown = value || (opts.placeholder ?? '');
+    const g = computeBox(title, [Math.max(width(shown) + 2, 30)], cols, rows, hint);
+    const lines: string[] = [];
+    const titleSeg = `${BOX.h} ${title} `;
+    lines.push(
+      BOX.tl + padTo(titleSeg, g.innerWidth).replace(/ +$/g, (m) => BOX.h.repeat(m.length)) + BOX.tr,
+    );
+    const dim = value ? '' : `${ESC}[2m`;
+    const reset = value ? '' : `${ESC}[22m`;
+    const text = truncate(shown, g.innerWidth - 3);
+    const body = ` ${dim}${text}${reset}` + (value ? '█' : '');
+    const visibleLen = width(body.replace(/\x1b\[[0-9;]*m/g, ''));
+    lines.push(BOX.v + body + ' '.repeat(Math.max(0, g.innerWidth - visibleLen)) + BOX.v);
+    lines.push(BOX.v + `${ESC}[2m` + padTo(` ${hint}`, g.innerWidth) + `${ESC}[0m` + BOX.v);
+    lines.push(BOX.bl + BOX.h.repeat(g.innerWidth) + BOX.br);
+
+    if (opts.fullscreen) {
+      const pad = ' '.repeat(g.startCol - 1);
+      const frame: string[] = [];
+      for (let r = 0; r < rows; r++) {
+        const bi = r - (g.startRow - 1);
+        frame.push(bi >= 0 && bi < lines.length ? pad + lines[bi] : '');
+      }
+      process.stdout.write(`${ESC}[H` + frame.map((l) => `${ESC}[2K${l}`).join('\r\n'));
+    } else {
+      const at = (r: number, c: number) => `${ESC}[${r};${c}H`;
+      let out = `${ESC}7`;
+      lines.forEach((l, i) => (out += at(g.startRow + i, g.startCol) + l));
+      out += `${ESC}8`;
+      process.stdout.write(out);
+    }
+  };
+
+  process.stdout.write((opts.fullscreen ? `${ESC}[?1049h${ESC}[2J${ESC}[H` : '') + `${ESC}[?25l${ESC}[?7l`);
+  const wasRaw = stdin.isRaw ?? false;
+  stdin.setRawMode(true);
+  stdin.resume();
+  draw();
+
+  return new Promise<string | null>((resolve) => {
+    const cleanup = (result: string | null) => {
+      stdin.off('data', onData);
+      stdin.setRawMode!(wasRaw);
+      stdin.pause();
+      process.stdout.write(
+        `${ESC}[?25h${ESC}[?7h` + (opts.fullscreen ? `${ESC}[2J${ESC}[H${ESC}[?1049l` : ''),
+      );
+      resolve(result);
+    };
+    const onData = (data: Buffer) => {
+      for (const byte of data) {
+        if (byte === 0x0d || byte === 0x0a) return cleanup(value.trim() ? value.trim() : null);
+        if (byte === 0x1b || byte === 0x03) return cleanup(null);
+        if (byte === 0x7f || byte === 0x08) {
+          value = [...value].slice(0, -1).join('');
+        } else if (byte >= 0x20 && byte < 0x7f) {
+          value += String.fromCharCode(byte);
+        }
+      }
+      draw();
+    };
+    stdin.on('data', onData);
+  });
+}
+
 /** A centered Yes/No confirmation. */
 export async function overlayConfirm(
   question: string,
