@@ -73,10 +73,10 @@ export async function startNew(opts: StartOptions): Promise<void> {
   let chosen: (typeof sources)[number] | null = null;
   if (sources.length > 0) {
     const picked = await overlayMenu<CredChoice>(
-      `Import credentials for ${opts.command}?`,
+      `${opts.command} credentials`,
       [
         ...sources.map((s) => ({ label: s.label, detail: s.detail, value: s as CredChoice })),
-        { label: 'Neither — start without importing', value: 'none' as CredChoice },
+        { label: 'Skip', value: 'none' as CredChoice },
       ],
       { fullscreen: true },
     );

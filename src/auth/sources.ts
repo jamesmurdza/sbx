@@ -102,8 +102,8 @@ export async function discoverSources(agent: AgentDef): Promise<DiscoveredSource
     if (value && value.trim()) {
       sources.push({
         kind: 'env',
-        label: `Use ${agent.apiKeyEnv} env var`,
-        detail: `${agent.apiKeyEnv} from current environment`,
+        label: 'Environment variable',
+        detail: agent.apiKeyEnv,
         payload: { env: { name: agent.apiKeyEnv, value } },
       });
     }
@@ -115,8 +115,8 @@ export async function discoverSources(agent: AgentDef): Promise<DiscoveredSource
     if (secret) {
       sources.push({
         kind: 'keychain',
-        label: 'Use macOS keychain credentials',
-        detail: `keychain "${agent.keychainService}" -> ~/${agent.sandboxCredFile}`,
+        label: 'macOS Keychain',
+        detail: agent.keychainService,
         payload: { file: { sandboxRelPath: agent.sandboxCredFile, content: secret }, companions },
       });
     }
@@ -128,8 +128,8 @@ export async function discoverSources(agent: AgentDef): Promise<DiscoveredSource
     if (content) {
       sources.push({
         kind: 'file',
-        label: `Use local ~/${agent.localCredFile}`,
-        detail: `copy to ~/${agent.sandboxCredFile} in the sandbox`,
+        label: 'Local file',
+        detail: `~/${agent.localCredFile}`,
         payload: { file: { sandboxRelPath: agent.sandboxCredFile, content }, companions },
       });
     }
