@@ -76,9 +76,9 @@ export const AGENTS: Record<string, AgentDef> = {
     keychainService: 'Claude Code-credentials',
     localCredFile: '.claude/.credentials.json',
     sandboxCredFile: '.claude/.credentials.json',
-    // ~/.claude.json holds the account + onboarding state; without it Claude
-    // re-runs onboarding and ignores the imported token.
-    companionFiles: [{ local: '.claude.json', sandbox: '.claude.json' }],
+    // ~/.claude.json (account + onboarding + trust/bypass acceptance) is written
+    // by prepareClaudeConfig() — merged locally and uploaded, so it does not
+    // depend on a node runtime existing in the sandbox.
     // Start Claude in fullscreen (no-flicker) mode.
     env: { CLAUDE_CODE_NO_FLICKER: '1' },
   },

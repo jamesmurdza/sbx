@@ -14,7 +14,10 @@ import {
 import { inspectLocalRepo } from './local-git.js';
 import { discoverSources } from './auth/sources.js';
 import { applyCredential } from './auth/importer.js';
-import { run, sandboxHome } from './sandbox-ops.js';
+import { sandboxHome, writeHomeFile } from './sandbox-ops.js';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { resolveGitHubToken } from './git/auth.js';
 import { setupRepo } from './git/repo.js';
 import { AutoPush, type PushStatus } from './git/autopush.js';
@@ -148,37 +151,46 @@ export async function startNew(opts: StartOptions): Promise<void> {
   // Pre-accept Claude's folder-trust (and bypass-permissions) prompts.
   if (opts.command === 'claude') {
     const dir = cwdInSandbox ?? (await sandboxHome(sandbox));
-    await prepareClaudeConfig(sandbox, dir, opts.yolo !== false);
+    await prepareClaudeConfig(sandbox, dir, {
+      bypass: opts.yolo !== false,
+      importHostConfig: !!chosen?.payload.file,
+    });
   }
 
   await runInteractive(sandbox, runCommand, cwdInSandbox, env, bar, autopush);
 }
 
 /**
- * Pre-seeds the sandbox's ~/.claude.json so Claude skips its launch prompts:
+ * Writes the sandbox's ~/.claude.json so Claude skips its launch prompts:
+ *  - the account + onboarding state (imported from the host config when a
+ *    subscription/file credential was chosen, so login is recognised),
  *  - the per-directory "Is this a project you trust?" dialog, and
- *  - the global "Bypass Permissions mode" acceptance (when we pass
- *    --dangerously-skip-permissions, i.e. not --safe).
- * Best-effort; failures are logged and the prompts simply appear.
+ *  - the global "Bypass Permissions mode" acceptance (unless --safe).
+ *
+ * The merge is done locally and the result uploaded via the filesystem API, so
+ * it does not rely on a node/python runtime existing in the sandbox.
  */
 async function prepareClaudeConfig(
   sandbox: import('@daytonaio/sdk').Sandbox,
   dir: string,
-  bypass: boolean,
+  opts: { bypass: boolean; importHostConfig: boolean },
 ): Promise<void> {
   try {
-    const home = await sandboxHome(sandbox);
-    const confPath = `${home}/.claude.json`;
-    const js =
-      `const fs=require('fs');const p=${JSON.stringify(confPath)};` +
-      `let c={};try{c=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}` +
-      `c.projects=c.projects||{};const d=${JSON.stringify(dir)};` +
-      `c.projects[d]={...(c.projects[d]||{}),hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true};` +
-      (bypass ? `c.bypassPermissionsModeAccepted=true;` : '') +
-      `fs.writeFileSync(p,JSON.stringify(c,null,2));`;
-    await run(sandbox, `node -e '${js.replace(/'/g, `'\\''`)}'`);
+    let conf: Record<string, unknown> = {};
+    if (opts.importHostConfig) {
+      try {
+        conf = JSON.parse(await readFile(join(homedir(), '.claude.json'), 'utf8'));
+      } catch {
+        conf = {};
+      }
+    }
+    const projects = (conf.projects as Record<string, Record<string, unknown>>) ?? {};
+    projects[dir] = { ...(projects[dir] ?? {}), hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true };
+    conf.projects = projects;
+    if (opts.bypass) conf.bypassPermissionsModeAccepted = true;
+    await writeHomeFile(sandbox, '.claude.json', JSON.stringify(conf, null, 2), '600');
   } catch (err) {
-    log(`note: could not pre-accept claude prompts for ${dir} (${err instanceof Error ? err.message : err}).`);
+    log(`note: could not pre-accept claude prompts (${err instanceof Error ? err.message : err}).`);
   }
 }
 
