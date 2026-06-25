@@ -33,6 +33,19 @@ test('modalFrame prompt shows the typed value with a cursor', () => {
   assert.ok(t.includes('abc█'), 'value + cursor shown');
 });
 
+test('modalFrame info renders the title and lines', () => {
+  const state: ModalState = {
+    kind: 'info',
+    title: 'Sandbox abc',
+    lines: ['ID       abc123', 'Branch   teleport/main/abc'],
+    resolve: () => {},
+  };
+  const t = text(modalFrame(state, 50, 12));
+  assert.ok(t.includes('Sandbox abc'));
+  assert.ok(t.includes('teleport/main/abc'));
+  assert.ok(t.includes('Esc to close'));
+});
+
 test('modalFrame prompt shows the dim placeholder when empty', () => {
   const state: ModalState = { kind: 'prompt', title: 'Custom', placeholder: 'type here', value: '', resolve: () => {} };
   const frame = modalFrame(state, 30, 8);

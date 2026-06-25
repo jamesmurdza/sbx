@@ -19,6 +19,12 @@ export interface SidebarItem {
   state: string;
   /** True for the sandbox currently attached. */
   current: boolean;
+  /** Repo slug (owner/name), if any — for the info panel and the GitHub link. */
+  repo?: string;
+  /** Working branch, if any. */
+  branch?: string;
+  /** ISO creation timestamp, if known. */
+  createdAt?: string;
 }
 
 /** Default width (columns) of the sidebar band when open. */

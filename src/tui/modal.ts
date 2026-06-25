@@ -29,6 +29,12 @@ export type ModalState =
       placeholder: string;
       value: string;
       resolve: (v: string | null) => void;
+    }
+  | {
+      kind: 'info';
+      title: string;
+      lines: string[];
+      resolve: () => void;
     };
 
 function width(s: string): number {
@@ -75,6 +81,9 @@ function boxRows(state: ModalState, innerWidth: number): Cell[][] {
       rows.push(content(cells(` ${text}`, innerWidth, sel ? '7' : '')));
     });
     rows.push(content(cells(' ↑/↓ · Enter · Esc', innerWidth, '2')));
+  } else if (state.kind === 'info') {
+    for (const line of state.lines) rows.push(content(cells(` ${line}`, innerWidth)));
+    rows.push(content(cells(' Esc to close', innerWidth, '2')));
   } else {
     const shown = state.value || state.placeholder;
     rows.push(content(cells(` ${shown}${state.value ? '█' : ''}`, innerWidth, state.value ? '' : '2')));
@@ -90,7 +99,9 @@ export function modalFrame(state: ModalState, cols: number, rows: number): Frame
   const contentWidths =
     state.kind === 'menu'
       ? state.items.map((it) => width(it.label) + (it.detail ? width(it.detail) + 2 : 0) + 4)
-      : [width(state.placeholder) + 2, 40];
+      : state.kind === 'info'
+        ? state.lines.map((l) => width(l) + 2)
+        : [width(state.placeholder) + 2, 40];
   const innerWidth = Math.min(
     Math.max(width(state.title) + 2, ...contentWidths, 24),
     Math.max(8, cols - 4),

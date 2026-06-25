@@ -69,6 +69,10 @@ export interface CompositorOptions {
   onSessionAction?: (outcome: 'detached') => void;
   /** Creates a new sandbox (the `n` action). */
   onNew?: () => void;
+  /** Shows an info panel for the selected sandbox (the `i` action). */
+  onInfo?: (item: SidebarItem) => void;
+  /** Opens the selected sandbox's branch on GitHub (the `g` action). */
+  onOpenBranch?: (item: SidebarItem) => void;
   /**
    * Deletes the *current* sandbox. `neighbour` is another sandbox to hand off to
    * so the session (and sidebar) can continue, or null if none exists.
@@ -79,7 +83,7 @@ export interface CompositorOptions {
 }
 
 /** Keybinding legend shown in the sidebar footer. */
-const SIDEBAR_LEGEND = '↵ open  n new  d del  x exit';
+const SIDEBAR_LEGEND = '↵ open  n new  i info  g web  d del  x exit';
 
 /** Clamps a scrollback offset to [0, max]. */
 export function clampScroll(offset: number, max: number): number {
@@ -213,6 +217,10 @@ export class Compositor {
   private modalInput(rest: string): void {
     const m = this.modal;
     if (!m) return;
+    if (m.kind === 'info') {
+      this.closeModal(undefined); // any key dismisses the info panel
+      return;
+    }
     if (m.kind === 'menu') {
       switch (decodeKey(Buffer.from(rest, 'binary'))) {
         case 'up':
@@ -266,6 +274,16 @@ export class Compositor {
     if (s === 'n' || s === 'N') return void this.opts.onNew?.();
     if (s === 'd') return this.askDelete();
     if (s === 'x' || s === 'X') return void this.opts.onSessionAction?.('detached');
+    if (s === 'i' || s === 'I') {
+      const it = this.sidebarItems[this.sidebarSelected];
+      if (it) this.opts.onInfo?.(it);
+      return;
+    }
+    if (s === 'g' || s === 'G') {
+      const it = this.sidebarItems[this.sidebarSelected];
+      if (it) this.opts.onOpenBranch?.(it);
+      return;
+    }
     switch (decodeKey(buf)) {
       case 'up':
         this.moveSelection(-1);
@@ -356,6 +374,14 @@ export class Compositor {
   prompt(title: string, placeholder = ''): Promise<string | null> {
     return new Promise((resolve) => {
       this.modal = { kind: 'prompt', title, placeholder, value: '', resolve };
+      this.scheduleRender();
+    });
+  }
+
+  /** Shows a read-only info panel in the agent pane; resolves when dismissed. */
+  info(title: string, lines: string[]): Promise<void> {
+    return new Promise((resolve) => {
+      this.modal = { kind: 'info', title, lines, resolve };
       this.scheduleRender();
     });
   }

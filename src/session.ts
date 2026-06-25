@@ -21,6 +21,7 @@ import { sandboxHome } from './sandbox-ops.js';
 import { Compositor } from './tui/compositor.js';
 import type { BarInfo } from './tui/statusbar.js';
 import type { SidebarItem } from './tui/sidebar.js';
+import { openUrl, githubBranchUrl } from './open.js';
 
 /** Ctrl-\ (FS, 0x1c) — toggles the teleport sandbox sidebar. */
 const MENU_KEY = 0x1c;
@@ -65,6 +66,18 @@ type Pty = Awaited<ReturnType<Sandbox['process']['createPty']>>;
 
 /** Status-bar fields shown while idle (no agent attached). */
 const IDLE_BAR: BarInfo = { shortId: 'teleport', agent: '—' };
+
+/** Compact "5m ago" / "3h ago" / "2d ago" from an ISO timestamp. */
+function relativeAge(iso: string): string {
+  const ms = Date.now() - Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 /** True when a stdin chunk is exactly the menu trigger (Ctrl-\). */
 export function isMenuTrigger(chunk: Buffer): boolean {
@@ -287,6 +300,8 @@ export class TeleportSession {
       onSidebarSelect: (item) => this.onSelect(item),
       onSessionAction: (action) => this.settle?.(action),
       onNew: () => this.settle?.('new'),
+      onInfo: (item) => this.showInfo(item),
+      onOpenBranch: (item) => this.openBranch(item),
       onDeleteCurrent: (current, neighbour) => this.onDeleteCurrent(current, neighbour),
       onDeleteOther: (item) => this.onDeleteOther(item.id),
     });
@@ -354,6 +369,30 @@ export class TeleportSession {
     }
     this.deps.switchTarget.id = item.id;
     this.settle?.('switch');
+  }
+
+  /** Shows a read-only info panel for the selected sandbox in the agent pane. */
+  private showInfo(item: SidebarItem): void {
+    const lines = [
+      `ID       ${item.id}`,
+      `Agent    ${item.agent}`,
+      `State    ${item.state}`,
+      `Repo     ${item.repo ?? '—'}`,
+      `Branch   ${item.branch ?? '—'}`,
+      `Created  ${item.createdAt ? relativeAge(item.createdAt) : '—'}`,
+    ];
+    void this.compositor?.info(`Sandbox ${item.id.slice(0, 8)}`, lines);
+  }
+
+  /** Opens the selected sandbox's branch on GitHub in the local browser. */
+  private openBranch(item: SidebarItem): void {
+    const url = githubBranchUrl(item.repo, item.branch);
+    if (!url) {
+      void this.compositor?.info('Open on GitHub', ['This sandbox has no git repo/branch.']);
+      return;
+    }
+    openUrl(url);
+    void this.compositor?.info('Open on GitHub', [`Opened in your browser:`, url]);
   }
 
   // Deleting the *current* sandbox hands off to a neighbour so the flow

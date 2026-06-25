@@ -89,6 +89,9 @@ async function listSandboxItems(currentId: string): Promise<SidebarItem[]> {
       agent: s.command || s.agent || '?',
       state: s.state || '?',
       current: s.id === currentId,
+      repo: s.repo || undefined,
+      branch: s.branch || undefined,
+      createdAt: s.createdAt || undefined,
     }));
 }
 

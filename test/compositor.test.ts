@@ -25,6 +25,8 @@ function harness(rows = 6, cols = 20) {
   const inlineActions: Array<{ kind: string; id: string }> = [];
   const deleteCurrent: Array<{ id: string; neighbour: string | null }> = [];
   const newCount: number[] = [];
+  const infoFor: string[] = [];
+  const openBranchFor: string[] = [];
   const c = new Compositor({
     cols,
     rows,
@@ -35,10 +37,12 @@ function harness(rows = 6, cols = 20) {
     onSidebarSelect: (it, index) => selected.push({ id: it.id, index }),
     onSessionAction: (a) => sessionActions.push(a),
     onNew: () => newCount.push(1),
+    onInfo: (it) => infoFor.push(it.id),
+    onOpenBranch: (it) => openBranchFor.push(it.id),
     onDeleteCurrent: (cur, nb) => deleteCurrent.push({ id: cur.id, neighbour: nb?.id ?? null }),
     onDeleteOther: (it) => inlineActions.push({ kind: 'delete', id: it.id }),
   });
-  return { c, writes, toPty, sizes, selected, sessionActions, deleteCurrent, inlineActions, newCount, out: () => writes.join('') };
+  return { c, writes, toPty, sizes, selected, sessionActions, deleteCurrent, inlineActions, newCount, infoFor, openBranchFor, out: () => writes.join('') };
 }
 
 const sandboxes = [
@@ -110,6 +114,19 @@ test('x detaches the session; n requests a new sandbox', () => {
   assert.deepEqual(sessionActions, ['detached']);
   c.input(Buffer.from('n')); // request a new sandbox
   assert.equal(newCount.length, 1);
+  c.stop();
+});
+
+test('i and g act on the selected sandbox', () => {
+  const { c, infoFor, openBranchFor } = harness(12, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  c.input(Buffer.from('\x1d')); // open; selection on current (index 0)
+  c.input(Buffer.from('\x1b[B')); // down → bbbb2222
+  c.input(Buffer.from('i'));
+  c.input(Buffer.from('g'));
+  assert.deepEqual(infoFor, ['bbbb2222']);
+  assert.deepEqual(openBranchFor, ['bbbb2222']);
   c.stop();
 });
 

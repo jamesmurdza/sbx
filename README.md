@@ -83,8 +83,9 @@ teleport --safe claude     # -> claude   (prompts intact)
    **Ctrl-\\**) to toggle the **collapsible left sidebar** — the control center
    for all your sandboxes. The agent reflows to make room, and the sidebar
    captures: **↑/↓** move · **Enter** switch to the selected sandbox · **n** new
-   sandbox (pick any preinstalled agent or a custom command) · **d** delete it
-   (asks `y/n`) · **x** detach and exit · **Esc** close. The status bar and sidebar
+   sandbox (pick any preinstalled agent or a custom command) · **i** info panel ·
+   **g** open the sandbox's branch on GitHub · **d** delete it (asks `y/n`) ·
+   **x** detach and exit · **Esc** close. The status bar and sidebar
    stay up even with no agent attached (and while a new one is creating), so the
    menu always works. Deleting the *current* sandbox hands off to a neighbour;
    deleting *another* happens in place. Idle sandboxes auto-stop (configurable via
