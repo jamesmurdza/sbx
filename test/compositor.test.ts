@@ -294,6 +294,20 @@ test('selection follows the same sandbox by id when the list reorders', async ()
   c.stop();
 });
 
+test('a newly attached sandbox (e.g. just created) pulls the selection onto it', async () => {
+  const { c, writes } = harness(14, 80);
+  c.start();
+  c.setSandboxes(sandboxes); // [aaaa(cur), bbbb, cccc]
+  c.input(Buffer.from('\x1d')); // open, selection on current (aaaa)
+  c.input(Buffer.from('\x1b[B')); // move selection to bbbb2222
+  // A new sandbox is created: it lands at the top and becomes the attached one.
+  const created = { id: 'dddd4444', agent: 'claude', state: 'started', current: true };
+  c.setSandboxes([created, { ...sandboxes[0], current: false }, sandboxes[1], sandboxes[2]]);
+  const out = await modalAfterDelete(c, writes);
+  assert.ok(out.includes('Delete sandbox dddd4444?'), 'selection jumped to the newly attached sandbox');
+  c.stop();
+});
+
 test('deleting the selected sandbox keeps the cursor on the neighbour', async () => {
   const { c, writes } = harness(12, 80);
   c.start();

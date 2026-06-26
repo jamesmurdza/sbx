@@ -110,6 +110,13 @@ export class Compositor {
   private sidebarFocused = true;
   private sidebarItems: SidebarItem[] = [];
   private sidebarSelected = 0;
+  /**
+   * Id of the attached sandbox the selection was last synced to. When the
+   * attached sandbox changes (e.g. one you just created, or a delete handing off
+   * to a neighbour) the selection jumps onto it, instead of staying stuck on the
+   * previously-highlighted row.
+   */
+  private lastCurrentId: string | null = null;
   private prevSidebar: string[] | null = null;
   /** Sandboxes deleted locally, filtered out until the server stops reporting them. */
   private readonly removedIds = new Set<string>();
@@ -396,9 +403,21 @@ export class Compositor {
   private applyList(items: SidebarItem[]): void {
     const prevId = this.sidebarItems[this.sidebarSelected]?.id;
     this.sidebarItems = items;
-    let idx = prevId ? items.findIndex((it) => it.id === prevId) : -1;
+    const current = items.find((it) => it.current) ?? null;
+    let idx = -1;
+    // When the *attached* sandbox changes (a freshly created one, or a delete
+    // handing off to a neighbour), pull the selection onto it — the highlighted
+    // row should track what we're now attached to. During live preview the
+    // attached sandbox already follows the selection, so this is a no-op and never
+    // fights the user's navigation. Otherwise keep the selection on its sandbox.
+    if (current && current.id !== this.lastCurrentId) {
+      idx = items.indexOf(current);
+    } else if (prevId) {
+      idx = items.findIndex((it) => it.id === prevId);
+    }
     if (idx < 0) idx = Math.min(this.sidebarSelected, items.length - 1);
     this.sidebarSelected = Math.max(0, idx);
+    if (current) this.lastCurrentId = current.id;
     if (this.sidebarOpen) this.scheduleRender();
   }
 
