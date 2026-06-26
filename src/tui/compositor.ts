@@ -87,8 +87,8 @@ export interface CompositorOptions {
 
 /** Keybinding legend shown in the sidebar footer (two rows so it isn't clipped). */
 const SIDEBAR_LEGEND = ['↵ open   n new   i info', 'g web   d del   x exit'];
-/** Footer shown when focus is on the agent pane (the hotkeys type into it). */
-const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent'];
+/** No footer when focus is on the agent pane — the hotkeys type into it. */
+const SIDEBAR_AGENT_LEGEND: string[] = [];
 
 export class Compositor {
   private term: InstanceType<typeof Terminal>;
