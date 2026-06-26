@@ -288,6 +288,9 @@ export class TeleportSession {
   async attach(spec: AttachSpec): Promise<AttachOutcome> {
     const compositor = this.ensureCompositor(spec.bar);
     this.listProvider = spec.listSandboxes;
+    // The user may have already picked a different sandbox before we got here —
+    // don't bother loading this one; bail so the loop catches up to the latest.
+    if (this.supersededBy(spec)) return 'switch';
     this.shownId = spec.sandbox.id;
     this.intendedId = spec.sandbox.id;
     spec.bindStatus?.((text) => compositor.setLiveStatus(text));
@@ -302,6 +305,7 @@ export class TeleportSession {
     }
 
     const envs = await this.buildEnv(spec);
+    if (this.supersededBy(spec)) return 'switch';
 
     if (spec.openSidebar) compositor.openSidebar();
     else compositor.closeSidebar();
@@ -317,10 +321,18 @@ export class TeleportSession {
       cols: size.cols,
       rows: size.rows,
       onData: (data) => {
+        // If a newer switch is queued, ignore late output from the sandbox we're
+        // abandoning so it can't repaint over the new target's "connecting…" notice.
+        if (this.supersededBy(spec)) return;
         this.sawAgentOutput = true;
         compositor.feed(data);
       },
     });
+    // The selection moved on while the PTY was connecting — drop it and catch up.
+    if (this.supersededBy(spec)) {
+      await pty.disconnect().catch(() => {});
+      return 'switch';
+    }
     this.currentPty = pty;
 
     if (fresh) {
@@ -333,6 +345,14 @@ export class TeleportSession {
     }
 
     void this.refresh();
+
+    // Last check before we park on this sandbox: if a switch arrived during the
+    // resize/launch nudges above, abandon it now so we don't wait on a stale PTY.
+    if (this.supersededBy(spec)) {
+      await pty.disconnect().catch(() => {});
+      this.currentPty = null;
+      return 'switch';
+    }
 
     const result = await this.waitOutcome(pty);
 
@@ -506,12 +526,18 @@ export class TeleportSession {
           resolve(o);
         };
         this.settle = settle; // sidebar callbacks resolve this wait
-        // Replay an action queued while no wait was active.
+        // Replay an action queued while no wait was active. A queued 'switch' is
+        // only valid while its target is still pending in switchTarget: the loop
+        // clears that once it commits to a sandbox, so a leftover 'switch' (e.g.
+        // one already consumed by an attach's mid-load bail) would otherwise fire
+        // here with no target and wrongly end the run. Drop it in that case.
         if (this.pendingOutcome) {
           const o = this.pendingOutcome;
           this.pendingOutcome = null;
-          settle(o);
-          return;
+          if (o !== 'switch' || this.deps.switchTarget.id) {
+            settle(o);
+            return;
+          }
         }
         pty
           ?.wait()
@@ -562,10 +588,38 @@ export class TeleportSession {
     // dedup/settle against the latest target, not the one still attaching.
     this.intendedId = item.id;
     this.compositor?.setBar(barFromItem(item));
+    // Instant feedback: clear the agent pane and show the target's placeholder
+    // right away, so the view appears to change immediately instead of lingering
+    // on the current sandbox (or the one still loading) until it catches up.
+    this.compositor?.resetAgent(this.switchPlaceholder(item, opts.start));
     this.deps.switchTarget.id = item.id;
     this.deps.switchTarget.openSidebar = opts.openSidebar;
     this.deps.switchTarget.start = opts.start;
+    // If an attach is parked waiting, this resolves it so the loop swaps now. If an
+    // attach is still loading, it's queued (and that attach also bails at its next
+    // checkpoint via switchTarget) — either way we end up on the latest selection.
     this.requestOutcome('switch');
+  }
+
+  /**
+   * True when the user has queued a switch to a *different* sandbox than `spec`
+   * while we were getting here / loading it. The loop clears `switchTarget.id`
+   * before it commits to attaching a sandbox, so a non-null id that doesn't match
+   * `spec` means a newer selection landed mid-flight — bail and let the loop catch
+   * up to it instead of finishing this (now-unwanted) load.
+   */
+  private supersededBy(spec: AttachSpec): boolean {
+    const pending = this.deps.switchTarget.id;
+    return pending != null && pending !== spec.sandbox.id;
+  }
+
+  /** The centered placeholder shown the instant a switch to `item` is requested. */
+  private switchPlaceholder(item: SidebarItem, start: boolean): string {
+    const short = item.id.slice(0, 8);
+    if (this.isStopped(item)) {
+      return start ? `starting ${short}…` : `⏸  ${short} is stopped — press Return to start it`;
+    }
+    return `connecting to ${short}…`;
   }
 
   /** Shows a read-only info panel for the selected sandbox in the agent pane. */
