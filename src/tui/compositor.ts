@@ -88,7 +88,7 @@ export interface CompositorOptions {
 /** Keybinding legend shown in the sidebar footer (two rows so it isn't clipped). */
 const SIDEBAR_LEGEND = ['↵ open   n new   i info', 'g web   d del   x exit'];
 /** Footer shown when focus is on the agent pane (the hotkeys type into it). */
-const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent', '← back to the sidebar'];
+const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent'];
 
 export class Compositor {
   private term: InstanceType<typeof Terminal>;
@@ -612,7 +612,10 @@ export class Compositor {
 
     // Sidebar band on the left, diffed line by line.
     if (w > 0) {
-      const tabHint = this.sidebarFocused ? '→ agent' : '← list';
+      // A single arrow at the top-right shows which way Tab / ←→ moves focus:
+      // → (hand off to the agent) when the sidebar is focused, ← (back to the list)
+      // when the agent is.
+      const tabHint = this.sidebarFocused ? '→' : '←';
       const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
         focused: this.sidebarFocused,
         tabHint,

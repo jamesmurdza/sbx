@@ -545,19 +545,16 @@ export class TeleportSession {
   private onSelect(item: SidebarItem): void {
     if (this.previewTimer) clearTimeout(this.previewTimer);
     this.previewTimer = null;
-    // The shown sandbox: close the sidebar to interact with it.
-    if (item.id === this.shownId && !this.isStopped(item)) {
-      this.compositor?.toggleSidebar();
-      return;
-    }
-    // Enter starts a stopped sandbox; running ones just attach and land.
-    this.requestSwitch(item, { start: this.isStopped(item), openSidebar: false });
+    // Enter switches to the sandbox (starting it if stopped) and keeps the sidebar
+    // open — it never closes the sidebar. Use → (or Tab) to hand focus to the agent.
+    this.requestSwitch(item, { start: this.isStopped(item), openSidebar: true });
   }
 
   /** Reflects the target in the chrome instantly, then asks the caller to swap. */
   private requestSwitch(item: SidebarItem, opts: { start: boolean; openSidebar: boolean }): void {
     if (item.id === this.intendedId && !this.isStopped(item)) {
-      // Already shown (or mid-switch) and running → just (un)collapse the sidebar.
+      // Already shown (or mid-switch) and running → nothing to swap. Only collapse
+      // if a caller explicitly asks to (none do today; Enter keeps it open).
       if (!opts.openSidebar) this.compositor?.closeSidebar();
       return;
     }

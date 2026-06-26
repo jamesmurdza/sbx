@@ -58,9 +58,9 @@ function footerCount(height: number, footer: string[]): number {
 }
 
 /**
- * The title row: " SANDBOXES" on the left and an optional Tab-focus hint
- * (e.g. "⇥ agent") right-justified, so the two-pane focus affordance is always
- * visible. Falls back to just the title when there isn't room.
+ * The title row: " SANDBOXES" on the left and an optional focus-direction hint
+ * (e.g. a single "→"/"←" arrow) right-justified, so the two-pane focus affordance
+ * is always visible. Falls back to just the title when there isn't room.
  */
 function titleRow(inner: number, hint: string): string {
   const left = ' SANDBOXES';
