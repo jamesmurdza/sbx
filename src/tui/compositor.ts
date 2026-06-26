@@ -88,8 +88,7 @@ export interface CompositorOptions {
 /** Keybinding legend shown in the sidebar footer (two rows so it isn't clipped). */
 const SIDEBAR_LEGEND = ['↵ open   n new   i info', 'g web   d del   x exit'];
 /** Footer shown when focus is on the agent pane (the hotkeys type into it). */
-const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent', '⇥ tab back to sidebar'];
-const TAB = '\t';
+const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent', '← back to the sidebar'];
 
 export class Compositor {
   private term: InstanceType<typeof Terminal>;
@@ -103,6 +102,8 @@ export class Compositor {
   private bar: BarInfo;
   /** When set, the agent area shows this centered message instead of the screen. */
   private agentPlaceholder: string | null = null;
+  /** Real-terminal colour replies for the agent's OSC 10/11 queries (if detected). */
+  private colorReplies: { osc10: string; osc11: string } | null = null;
 
   private sidebarOpen = false;
   /** When the sidebar is open, whether it (vs. the agent pane) has keyboard focus. */
@@ -159,10 +160,27 @@ export class Compositor {
     const text = typeof data === 'string' ? data : Buffer.from(data).toString('binary');
     this.mouseEncoding = trackMouseEncoding(text, this.mouseEncoding);
     this.trackCursorVisibility(text);
+    this.answerColorQueries(text);
     this.term.write(data, () => {
       this.syncRealMouse();
       this.scheduleRender();
     });
+  }
+
+  /**
+   * Tells the compositor the real terminal's colours so it can answer an agent's
+   * OSC 10/11 queries (the emulator itself doesn't), letting agents pick the
+   * right light/dark theme.
+   */
+  setColorReplies(replies: { osc10: string; osc11: string }): void {
+    this.colorReplies = replies;
+  }
+
+  /** Replies to OSC 10/11 (fg/bg) colour queries the agent emits, if we know them. */
+  private answerColorQueries(text: string): void {
+    if (!this.colorReplies) return;
+    if (/\x1b\]11;\?(?:\x07|\x1b\\)/.test(text)) this.opts.sendInput(this.colorReplies.osc11);
+    if (/\x1b\]10;\?(?:\x07|\x1b\\)/.test(text)) this.opts.sendInput(this.colorReplies.osc10);
   }
 
   /** Handles a stdin chunk: bridges mouse, drives the sidebar, or forwards keys. */
@@ -183,21 +201,29 @@ export class Compositor {
       if (!this.sidebarOpen && stripped) this.opts.sendInput(Buffer.from(stripped, 'binary'));
       return;
     }
-    // Two-pane focus: while the sidebar is open, Tab toggles which pane has the
-    // keyboard. When the sidebar is focused it captures navigation keys; when the
-    // agent is focused, keystrokes type into it while the sidebar stays visible.
+    // Two-pane focus: while the sidebar is open, the sideways arrows move the
+    // keyboard between the panes — → hands focus to the agent on the right, ←
+    // hands it back to the sidebar on the left. When the sidebar is focused it
+    // captures navigation keys; when the agent is focused, keystrokes type into
+    // it while the sidebar stays visible.
     if (this.sidebarOpen) {
-      if (rest === TAB) {
-        this.sidebarFocused = !this.sidebarFocused;
-        this.scheduleRender();
-        return;
-      }
+      const key = decodeKey(Buffer.from(rest, 'binary'));
       if (this.sidebarFocused) {
+        if (key === 'right') return this.setSidebarFocus(false);
         this.navInput(Buffer.from(rest, 'binary'));
         return;
       }
+      // Agent has focus (sidebar still visible): ← returns focus to the sidebar;
+      // everything else types into the agent.
+      if (key === 'left') return this.setSidebarFocus(true);
     }
     this.opts.sendInput(Buffer.from(rest, 'binary'));
+  }
+
+  private setSidebarFocus(toSidebar: boolean): void {
+    if (this.sidebarFocused === toSidebar) return;
+    this.sidebarFocused = toSidebar;
+    this.scheduleRender();
   }
 
   private handleMouse(ev: MouseEvent): void {
@@ -586,7 +612,7 @@ export class Compositor {
 
     // Sidebar band on the left, diffed line by line.
     if (w > 0) {
-      const tabHint = this.sidebarFocused ? '⇥ agent' : '⇥ list';
+      const tabHint = this.sidebarFocused ? '→ agent' : '← list';
       const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
         focused: this.sidebarFocused,
         tabHint,

@@ -79,7 +79,10 @@ teleport --safe claude     # -> claude   (prompts intact)
    in-sandbox tmux). Locally teleport is a **terminal compositor**: it parses the
    agent's output into a headless emulator and renders it, drawing its own bottom
    **status bar** (sandbox id, agent, repo, branch) on a reserved row and bridging
-   mouse + scroll-wheel through to agents that track them. Press **Ctrl-]** (or
+   mouse + scroll-wheel through to agents that track them. At startup it detects
+   your terminal's **light/dark background** (OSC 11) and passes it to the agent —
+   answering the agent's own colour query and setting `COLORFGBG` — so agents
+   theme themselves to match instead of defaulting to dark. Press **Ctrl-]** (or
    **Ctrl-\\**) to toggle the **collapsible left sidebar** — the control center
    for all your sandboxes. The agent reflows to make room, and the sidebar
    captures: **↑/↓** move — the agent view follows the highlighted sandbox live
@@ -88,11 +91,11 @@ teleport --safe claude     # -> claude   (prompts intact)
    type) · **n** new sandbox (pick any preinstalled agent or a custom command) ·
    **i** info panel · **g** open the sandbox's branch on GitHub · **d** delete it
    (confirm modal, Return = delete) · **x** detach and exit · **Esc** close the
-   sidebar/modal and return to the agent. **Two-pane focus:** press **Tab** to
-   hand the keyboard to the agent pane *without* closing the sidebar — it stays
-   visible (dimmed, the selection shown bold) while you type, and Tab again hands
-   focus back to the sidebar; a `⇥ agent`/`⇥ list` hint in the title shows which
-   way Tab goes. The status bar and sidebar stay up even with no agent attached
+   sidebar/modal and return to the agent. **Two-pane focus:** press **→** to hand
+   the keyboard to the agent pane *without* closing the sidebar — it stays visible
+   (dimmed, the selection shown bold) while you type, and **←** hands focus back
+   to the sidebar; a `→ agent`/`← list` hint in the title shows which way the
+   arrows go. The status bar and sidebar stay up even with no agent attached
    (and while a new one is creating), so the menu always works. **Ctrl-C** is the
    agent's own interrupt while you're typing into it (or with the sidebar focus
    handed to the agent via Tab), but

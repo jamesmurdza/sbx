@@ -19,6 +19,7 @@ import type { Sandbox } from '@daytonaio/sdk';
 import { PTY_SESSION_ID } from './config.js';
 import { sandboxHome } from './sandbox-ops.js';
 import { Compositor } from './tui/compositor.js';
+import { detectBackground, colorfgbg, colorReplies, type TermBackground } from './tui/theme.js';
 import type { BarInfo } from './tui/statusbar.js';
 import type { SidebarItem } from './tui/sidebar.js';
 import { openUrl, githubBranchUrl } from './open.js';
@@ -173,6 +174,16 @@ export class TeleportSession {
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Id of the sandbox currently shown in the agent pane (or null when idle). */
   private shownId: string | null = null;
+  /**
+   * Id of the sandbox we last *intended* to show — set the instant the user
+   * navigates/switches, before the (async) attach completes. The live preview
+   * dedups against this, not `shownId` (which only updates once an attach lands),
+   * so rapid back-to-back switches always settle on the final selection instead
+   * of getting stranded on an in-flight one.
+   */
+  private intendedId: string | null = null;
+  /** Detected real-terminal background, for agent theming (light/dark). */
+  private background: TermBackground | null = null;
   /** Debounce timer for the live preview as the selection moves. */
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
   /** Resolver for the in-flight attach; sidebar callbacks call it. */
@@ -232,7 +243,8 @@ export class TeleportSession {
     const compositor = this.ensureCompositor(IDLE_BAR);
     this.listProvider = listSandboxes;
     this.shownId = null;
-    if (!this.started) this.startInteractive(compositor);
+    this.intendedId = null;
+    if (!this.started) await this.startInteractive(compositor);
     compositor.setBar(IDLE_BAR);
     compositor.resetAgent(message);
     compositor.openSidebar();
@@ -249,7 +261,8 @@ export class TeleportSession {
     const compositor = this.ensureCompositor(barFromItem(item));
     this.listProvider = listSandboxes;
     this.shownId = item.id;
-    if (!this.started) this.startInteractive(compositor);
+    this.intendedId = item.id;
+    if (!this.started) await this.startInteractive(compositor);
     compositor.setBar(barFromItem(item));
     compositor.resetAgent(`⏸  ${item.id.slice(0, 8)} is stopped — press Return to start it`);
     compositor.openSidebar();
@@ -262,16 +275,20 @@ export class TeleportSession {
     const compositor = this.ensureCompositor(spec.bar);
     this.listProvider = spec.listSandboxes;
     this.shownId = spec.sandbox.id;
+    this.intendedId = spec.sandbox.id;
     spec.bindStatus?.((text) => compositor.setLiveStatus(text));
 
-    const envs = await this.buildEnv(spec);
-
+    // Start the UI (and detect the terminal background) before building the env,
+    // so COLORFGBG reflects the real theme on the very first agent too.
     if (!this.started) {
-      this.startInteractive(compositor);
+      await this.startInteractive(compositor);
       compositor.resetAgent('connecting…');
     } else {
       compositor.setBar(spec.bar);
     }
+
+    const envs = await this.buildEnv(spec);
+
     if (spec.openSidebar) compositor.openSidebar();
     else compositor.closeSidebar();
 
@@ -334,6 +351,9 @@ export class TeleportSession {
     // A UTF-8 locale, truecolor, and a real TERM let the agent emit the colours
     // and wide/Unicode characters the emulator renders. C.UTF-8 is always present.
     const localeLang = 'C.UTF-8';
+    // COLORFGBG lets agents that don't query OSC 11 still pick light/dark from the
+    // env; prefer the detected background, else pass through the local value.
+    const fgbg = this.background ? colorfgbg(this.background.isDark) : process.env.COLORFGBG;
     return {
       HOME: await sandboxHome(spec.sandbox),
       LANG: localeLang,
@@ -341,6 +361,7 @@ export class TeleportSession {
       LC_CTYPE: localeLang,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+      ...(fgbg ? { COLORFGBG: fgbg } : {}),
       ...spec.env,
     };
   }
@@ -367,11 +388,16 @@ export class TeleportSession {
     return this.compositor;
   }
 
-  private startInteractive(compositor: Compositor): void {
-    compositor.start();
+  private async startInteractive(compositor: Compositor): Promise<void> {
     this.wasRaw = this.stdin.isRaw ?? false;
     if (this.stdin.setRawMode) this.stdin.setRawMode(true);
     this.stdin.resume();
+    // Detect the real terminal's background *before* the alt screen + agent
+    // start, so agents theme themselves correctly (the emulator can't answer
+    // their OSC 11 query, and COLORFGBG needs to be in their env).
+    this.background = await detectBackground(this.stdin, process.stdout).catch(() => null);
+    if (this.background) compositor.setColorReplies(colorReplies(this.background));
+    compositor.start();
     this.stdin.on('data', this.onStdin);
     process.stdout.on('resize', this.onResize);
     this.refreshTimer = setInterval(() => void this.refresh(), 3000);
@@ -476,7 +502,7 @@ export class TeleportSession {
    */
   private onSelectionChange(item: SidebarItem): void {
     if (this.previewTimer) clearTimeout(this.previewTimer);
-    if (item.id === this.shownId) return; // already shown
+    if (item.id === this.intendedId) return; // already shown (or being switched to)
     this.previewTimer = setTimeout(() => {
       this.previewTimer = null;
       this.requestSwitch(item, { start: false, openSidebar: true });
@@ -498,11 +524,14 @@ export class TeleportSession {
 
   /** Reflects the target in the chrome instantly, then asks the caller to swap. */
   private requestSwitch(item: SidebarItem, opts: { start: boolean; openSidebar: boolean }): void {
-    if (item.id === this.shownId && !this.isStopped(item)) {
-      // Already shown and running → just (un)collapse the sidebar.
+    if (item.id === this.intendedId && !this.isStopped(item)) {
+      // Already shown (or mid-switch) and running → just (un)collapse the sidebar.
       if (!opts.openSidebar) this.compositor?.closeSidebar();
       return;
     }
+    // Record the intent now (before the async attach) so back-to-back switches
+    // dedup/settle against the latest target, not the one still attaching.
+    this.intendedId = item.id;
     this.compositor?.setBar(barFromItem(item));
     this.deps.switchTarget.id = item.id;
     this.deps.switchTarget.openSidebar = opts.openSidebar;

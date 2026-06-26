@@ -42,17 +42,17 @@ const sandboxes = [
   { id: 'cccc3333', agent: 'claude', state: 'stopped', current: false },
 ];
 
-test('agentFocused tracks the sidebar, modal, and two-pane Tab focus', async () => {
+test('agentFocused tracks the sidebar, modal, and two-pane arrow focus', async () => {
   const { c } = harness(12, 80);
   c.start();
   c.setSandboxes(sandboxes);
   assert.equal(c.agentFocused(), true, 'agent has focus by default');
   c.input(Buffer.from('\x1d')); // open the sidebar (focuses it)
   assert.equal(c.agentFocused(), false, 'sidebar captures input when focused');
-  c.input(Buffer.from('\t')); // Tab → hand focus to the agent (sidebar stays open)
+  c.input(Buffer.from('\x1b[C')); // → hand focus to the agent (sidebar stays open)
   assert.equal(c.agentFocused(), true, 'agent has focus while the sidebar is still open');
-  c.input(Buffer.from('\t')); // Tab → back to the sidebar
-  assert.equal(c.agentFocused(), false, 'focus toggled back to the sidebar');
+  c.input(Buffer.from('\x1b[D')); // ← back to the sidebar
+  assert.equal(c.agentFocused(), false, 'focus moved back to the sidebar');
   c.input(Buffer.from('d')); // open the delete modal
   await new Promise((r) => setTimeout(r, 25));
   assert.equal(c.agentFocused(), false, 'modal captures input');
@@ -62,7 +62,7 @@ test('agentFocused tracks the sidebar, modal, and two-pane Tab focus', async () 
   c.stop();
 });
 
-test('with the sidebar open, Tab forwards typing to the agent (not the sidebar)', () => {
+test('with the sidebar open, → forwards typing to the agent (not the sidebar)', () => {
   const { c, toPty, newCount } = harness(12, 80);
   c.start();
   c.setSandboxes(sandboxes);
@@ -71,11 +71,34 @@ test('with the sidebar open, Tab forwards typing to the agent (not the sidebar)'
   assert.equal(newCount.length, 1, 'sidebar consumed the hotkey');
   assert.equal(toPty.join(''), '', 'nothing went to the agent yet');
 
-  c.input(Buffer.from('\t')); // Tab → focus the agent
+  c.input(Buffer.from('\x1b[C')); // → focus the agent
   c.input(Buffer.from('n')); // now a literal key for the agent
   c.input(Buffer.from('hi'));
   assert.equal(newCount.length, 1, 'no extra sidebar action while agent-focused');
   assert.equal(toPty.join(''), 'nhi', 'keys typed into the agent with the sidebar still open');
+
+  c.input(Buffer.from('\x1b[D')); // ← focus the sidebar again
+  c.input(Buffer.from('n')); // hotkey works again
+  assert.equal(newCount.length, 2, 'sidebar hotkeys work after ← returns focus');
+  c.stop();
+});
+
+test('answers the agent OSC 10/11 colour queries when replies are set', () => {
+  const { c, toPty } = harness(6, 20);
+  c.start();
+  c.setColorReplies({ osc10: '\x1b]10;rgb:0000/0000/0000\x07', osc11: '\x1b]11;rgb:ffff/ffff/ffff\x07' });
+  c.feed('\x1b]11;?\x07'); // agent asks for the background
+  c.feed('\x1b]10;?\x07'); // agent asks for the foreground
+  assert.ok(toPty.join('').includes('\x1b]11;rgb:ffff/ffff/ffff\x07'), 'replied with the background');
+  assert.ok(toPty.join('').includes('\x1b]10;rgb:0000/0000/0000\x07'), 'replied with the foreground');
+  c.stop();
+});
+
+test('does not answer colour queries before replies are known', () => {
+  const { c, toPty } = harness(6, 20);
+  c.start();
+  c.feed('\x1b]11;?\x07');
+  assert.equal(toPty.join('').includes('rgb:'), false, 'stays silent without detected colours');
   c.stop();
 });
 

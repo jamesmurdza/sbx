@@ -5,11 +5,15 @@ import { decodeKey } from '../src/tui/prompt.ts';
 test('decodes arrow keys (normal cursor mode)', () => {
   assert.equal(decodeKey(Buffer.from('\x1b[A')), 'up');
   assert.equal(decodeKey(Buffer.from('\x1b[B')), 'down');
+  assert.equal(decodeKey(Buffer.from('\x1b[C')), 'right');
+  assert.equal(decodeKey(Buffer.from('\x1b[D')), 'left');
 });
 
-test('decodes arrow keys (application cursor mode, ESC O A/B)', () => {
+test('decodes arrow keys (application cursor mode, ESC O A/B/C/D)', () => {
   assert.equal(decodeKey(Buffer.from('\x1bOA')), 'up');
   assert.equal(decodeKey(Buffer.from('\x1bOB')), 'down');
+  assert.equal(decodeKey(Buffer.from('\x1bOC')), 'right');
+  assert.equal(decodeKey(Buffer.from('\x1bOD')), 'left');
 });
 
 test('decodes vim-style j/k', () => {
@@ -34,5 +38,5 @@ test('decodes Ctrl-D as delete', () => {
 
 test('unknown input is other', () => {
   assert.equal(decodeKey(Buffer.from('z')), 'other');
-  assert.equal(decodeKey(Buffer.from('\x1b[C')), 'other'); // right arrow
+  assert.equal(decodeKey(Buffer.from('\x1b[Z')), 'other'); // shift-tab
 });
