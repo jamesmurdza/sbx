@@ -45,6 +45,21 @@ test('sidebarLines render a two-row footer at the bottom', () => {
   assert.ok(lines[0].includes('SANDBOXES'));
 });
 
+test('sidebarLines show the Tab-focus hint in the title row', () => {
+  const lines = sidebarLines(items, 0, 26, 8, [], '⇥ agent');
+  assert.ok(lines[0].includes('SANDBOXES'), 'still shows the title');
+  assert.ok(lines[0].includes('⇥ agent'), 'shows the focus hint');
+  assert.equal(width(lines[0]), 26, 'title row stays full width');
+});
+
+test('renderSidebar: selection is inverse when focused, bold when not', () => {
+  const focused = renderSidebar(items, 1, 26, 8, [], { focused: true });
+  const blurred = renderSidebar(items, 1, 26, 8, [], { focused: false });
+  assert.ok(focused[2].includes('\x1b[7m'), 'selected row is inverse when focused');
+  assert.ok(!blurred[2].includes('\x1b[7m'), 'selected row is not inverse when agent-focused');
+  assert.ok(blurred[2].includes('\x1b[1m'), 'selected row is bold (still visible) when agent-focused');
+});
+
 test('renderSidebar styling matches the plain lines when stripped', () => {
   const styled = renderSidebar(items, 1, 26, 8);
   const plain = renderSidebar(items, 1, 26, 8, [], { color: false });

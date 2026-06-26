@@ -57,6 +57,20 @@ function footerCount(height: number, footer: string[]): number {
   return Math.min(footer.length, Math.max(0, height - 1));
 }
 
+/**
+ * The title row: " SANDBOXES" on the left and an optional Tab-focus hint
+ * (e.g. "⇥ agent") right-justified, so the two-pane focus affordance is always
+ * visible. Falls back to just the title when there isn't room.
+ */
+function titleRow(inner: number, hint: string): string {
+  const left = ' SANDBOXES';
+  const right = hint ? `${hint} ` : '';
+  if (width(left) + width(right) + 1 <= inner) {
+    return left + ' '.repeat(inner - width(left) - width(right)) + right;
+  }
+  return padTrunc(left, inner);
+}
+
 /** The plain (un-styled) sidebar lines — used for layout tests. */
 export function sidebarLines(
   items: SidebarItem[],
@@ -64,10 +78,11 @@ export function sidebarLines(
   width: number,
   height: number,
   footer: string[] = [],
+  tabHint = '',
 ): string[] {
   const inner = Math.max(1, width - 1); // last column is the separator
   const fc = footerCount(height, footer);
-  const lines: string[] = [padTrunc(' SANDBOXES', inner) + SEP];
+  const lines: string[] = [titleRow(inner, tabHint) + SEP];
   const rows = Math.max(0, height - 1 - fc);
   const start = windowStart(selected, items.length, rows);
   for (let i = 0; i < rows; i++) {
@@ -85,10 +100,12 @@ export function sidebarLines(
 }
 
 /**
- * Renders the sidebar as styled ANSI lines: the title is bold, the selected row
- * is inverse, the current sandbox is normal weight and others are dimmed, and
- * the footer rows (keybinding legend / confirm prompt) are dimmed. With
- * `color:false` it returns the same text without SGR (for tests).
+ * Renders the sidebar as styled ANSI lines. When `focused` (the sidebar pane has
+ * keyboard focus) the title is bold and the selected row is inverse; when the
+ * agent pane has focus instead, the title is dimmed and the selection is only
+ * bold — a clear "this pane is inactive" look while it stays visible. Other rows
+ * and the footer are dimmed. With `color:false` it returns the same text without
+ * SGR (for tests).
  */
 export function renderSidebar(
   items: SidebarItem[],
@@ -96,9 +113,10 @@ export function renderSidebar(
   width: number,
   height: number,
   footer: string[] = [],
-  opts: { color?: boolean } = {},
+  opts: { color?: boolean; focused?: boolean; tabHint?: string } = {},
 ): string[] {
-  const plain = sidebarLines(items, selected, width, height, footer);
+  const focused = opts.focused ?? true;
+  const plain = sidebarLines(items, selected, width, height, footer, opts.tabHint ?? '');
   if (opts.color === false) return plain;
   const fc = footerCount(height, footer);
   const rows = Math.max(0, height - 1 - fc);
@@ -107,11 +125,14 @@ export function renderSidebar(
   return plain.map((line, i) => {
     const body = line.slice(0, -1); // strip the separator char before styling
     const sep = `${ESC}[2m${SEP}${ESC}[22m`;
-    if (i === 0) return `${ESC}[1m${body}${ESC}[22m${sep}`;
+    if (i === 0) return `${ESC}[${focused ? 1 : 2}m${body}${ESC}[22m${sep}`;
     if (fc > 0 && i >= firstFooter) return `${ESC}[2m${body}${ESC}[22m${sep}`;
     const idx = start + (i - 1);
     const it = items[idx];
-    if (idx === selected && it) return `${ESC}[7m${body}${ESC}[27m${sep}`;
+    if (idx === selected && it) {
+      // Inverse when the sidebar is focused; bold (still visible) when not.
+      return focused ? `${ESC}[7m${body}${ESC}[27m${sep}` : `${ESC}[1m${body}${ESC}[22m${sep}`;
+    }
     if (it) return `${ESC}[2m${body}${ESC}[22m${sep}`; // non-selected rows are dimmed
     return body + sep;
   });

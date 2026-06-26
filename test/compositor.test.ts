@@ -42,19 +42,40 @@ const sandboxes = [
   { id: 'cccc3333', agent: 'claude', state: 'stopped', current: false },
 ];
 
-test('agentFocused is true only when no sidebar and no modal capture input', async () => {
+test('agentFocused tracks the sidebar, modal, and two-pane Tab focus', async () => {
   const { c } = harness(12, 80);
   c.start();
   c.setSandboxes(sandboxes);
   assert.equal(c.agentFocused(), true, 'agent has focus by default');
-  c.input(Buffer.from('\x1d')); // open the sidebar
-  assert.equal(c.agentFocused(), false, 'sidebar captures input');
+  c.input(Buffer.from('\x1d')); // open the sidebar (focuses it)
+  assert.equal(c.agentFocused(), false, 'sidebar captures input when focused');
+  c.input(Buffer.from('\t')); // Tab → hand focus to the agent (sidebar stays open)
+  assert.equal(c.agentFocused(), true, 'agent has focus while the sidebar is still open');
+  c.input(Buffer.from('\t')); // Tab → back to the sidebar
+  assert.equal(c.agentFocused(), false, 'focus toggled back to the sidebar');
   c.input(Buffer.from('d')); // open the delete modal
   await new Promise((r) => setTimeout(r, 25));
   assert.equal(c.agentFocused(), false, 'modal captures input');
   c.input(Buffer.from('\x1b')); // Esc → cancel modal
   c.input(Buffer.from('\x1d')); // close the sidebar
   assert.equal(c.agentFocused(), true, 'focus returns to the agent');
+  c.stop();
+});
+
+test('with the sidebar open, Tab forwards typing to the agent (not the sidebar)', () => {
+  const { c, toPty, newCount } = harness(12, 80);
+  c.start();
+  c.setSandboxes(sandboxes);
+  c.input(Buffer.from('\x1d')); // open the sidebar (focused)
+  c.input(Buffer.from('n')); // 'n' is a sidebar hotkey → new sandbox
+  assert.equal(newCount.length, 1, 'sidebar consumed the hotkey');
+  assert.equal(toPty.join(''), '', 'nothing went to the agent yet');
+
+  c.input(Buffer.from('\t')); // Tab → focus the agent
+  c.input(Buffer.from('n')); // now a literal key for the agent
+  c.input(Buffer.from('hi'));
+  assert.equal(newCount.length, 1, 'no extra sidebar action while agent-focused');
+  assert.equal(toPty.join(''), 'nhi', 'keys typed into the agent with the sidebar still open');
   c.stop();
 });
 

@@ -87,6 +87,9 @@ export interface CompositorOptions {
 
 /** Keybinding legend shown in the sidebar footer (two rows so it isn't clipped). */
 const SIDEBAR_LEGEND = ['↵ open   n new   i info', 'g web   d del   x exit'];
+/** Footer shown when focus is on the agent pane (the hotkeys type into it). */
+const SIDEBAR_AGENT_LEGEND = ['▶ typing to the agent', '⇥ tab back to sidebar'];
+const TAB = '\t';
 
 export class Compositor {
   private term: InstanceType<typeof Terminal>;
@@ -102,6 +105,8 @@ export class Compositor {
   private agentPlaceholder: string | null = null;
 
   private sidebarOpen = false;
+  /** When the sidebar is open, whether it (vs. the agent pane) has keyboard focus. */
+  private sidebarFocused = true;
   private sidebarItems: SidebarItem[] = [];
   private sidebarSelected = 0;
   private prevSidebar: string[] | null = null;
@@ -178,10 +183,19 @@ export class Compositor {
       if (!this.sidebarOpen && stripped) this.opts.sendInput(Buffer.from(stripped, 'binary'));
       return;
     }
-    // While the sidebar is open it captures navigation keys.
+    // Two-pane focus: while the sidebar is open, Tab toggles which pane has the
+    // keyboard. When the sidebar is focused it captures navigation keys; when the
+    // agent is focused, keystrokes type into it while the sidebar stays visible.
     if (this.sidebarOpen) {
-      this.navInput(Buffer.from(rest, 'binary'));
-      return;
+      if (rest === TAB) {
+        this.sidebarFocused = !this.sidebarFocused;
+        this.scheduleRender();
+        return;
+      }
+      if (this.sidebarFocused) {
+        this.navInput(Buffer.from(rest, 'binary'));
+        return;
+      }
     }
     this.opts.sendInput(Buffer.from(rest, 'binary'));
   }
@@ -192,10 +206,20 @@ export class Compositor {
     // Wheel the agent doesn't track (or over the sidebar): ignore. We don't scroll
     // a local viewport — that just flashes stale frames of a full-screen agent.
     if (wheelDirection(ev) !== 0 && (protocol === 'none' || ev.col <= w)) return;
-    // Clicks in the sidebar band select a row (and never reach the agent).
+    // Clicks in the sidebar band select a row, focus the sidebar, and never
+    // reach the agent.
     if (w > 0 && ev.col <= w) {
-      if (ev.pressed && !ev.motion && !isWheel(ev)) this.selectByRow(ev.row);
+      if (ev.pressed && !ev.motion && !isWheel(ev)) {
+        this.sidebarFocused = true;
+        this.selectByRow(ev.row);
+        this.scheduleRender();
+      }
       return;
+    }
+    // A click in the agent area (with the sidebar open) hands focus to the agent.
+    if (this.sidebarOpen && ev.pressed && !ev.motion && !isWheel(ev) && this.sidebarFocused) {
+      this.sidebarFocused = false;
+      this.scheduleRender();
     }
     // Forward to the agent (which tracks the wheel/clicks itself).
     const mapped = translateToAgent(ev, this.rows - 1, w);
@@ -419,7 +443,7 @@ export class Compositor {
    * is an agent interrupt (focused) or a quit/escape hatch (anything else).
    */
   agentFocused(): boolean {
-    return !this.sidebarOpen && !this.modal;
+    return !this.modal && !(this.sidebarOpen && this.sidebarFocused);
   }
 
   /** True while the sidebar band is open. */
@@ -431,6 +455,9 @@ export class Compositor {
   toggleSidebar(): void {
     this.sidebarOpen = !this.sidebarOpen;
     if (this.sidebarOpen) {
+      // Opening the sidebar focuses it (you opened it to navigate); Tab hands
+      // focus to the agent without closing it.
+      this.sidebarFocused = true;
       const cur = this.sidebarItems.findIndex((it) => it.current);
       this.sidebarSelected = cur >= 0 ? cur : 0;
     }
@@ -496,7 +523,9 @@ export class Compositor {
 
   /** Footer rows for the sidebar (the keybinding legend). */
   private sidebarFooter(): string[] {
-    return SIDEBAR_LEGEND;
+    // When the agent has focus the hotkeys type into it, so show the focus hint
+    // instead of a legend that wouldn't fire.
+    return this.sidebarFocused ? SIDEBAR_LEGEND : SIDEBAR_AGENT_LEGEND;
   }
 
   /** Maps a clicked screen row (1-based) to a sidebar item and selects it. */
@@ -557,7 +586,11 @@ export class Compositor {
 
     // Sidebar band on the left, diffed line by line.
     if (w > 0) {
-      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter());
+      const tabHint = this.sidebarFocused ? '⇥ agent' : '⇥ list';
+      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
+        focused: this.sidebarFocused,
+        tabHint,
+      });
       for (let r = 0; r < lines.length; r++) {
         if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
         out += `${ESC}[${r + 1};1H` + lines[r];
@@ -574,9 +607,10 @@ export class Compositor {
       this.prevBar = barText;
     }
 
-    // Cursor: in the agent area (offset by the sidebar), only when live, the
-    // agent shows it, the sidebar isn't capturing navigation, and no placeholder.
-    if (!this.sidebarOpen && !this.modal && !this.cursorHidden && this.agentPlaceholder === null) {
+    // Cursor: in the agent area (offset by the sidebar), only when the agent has
+    // focus (sidebar closed, or open with focus handed over via Tab), the agent
+    // shows it, and there's no modal/placeholder.
+    if (this.agentFocused() && !this.cursorHidden && this.agentPlaceholder === null) {
       const cx = Math.min(this.cols, buf.cursorX + 1 + w);
       const cy = Math.min(agentRows, buf.cursorY + 1);
       out += `${ESC}[${cy};${cx}H${ESC}[?25h`;

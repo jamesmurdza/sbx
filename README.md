@@ -88,9 +88,14 @@ teleport --safe claude     # -> claude   (prompts intact)
    type) · **n** new sandbox (pick any preinstalled agent or a custom command) ·
    **i** info panel · **g** open the sandbox's branch on GitHub · **d** delete it
    (confirm modal, Return = delete) · **x** detach and exit · **Esc** close the
-   sidebar/modal and return to the agent. The status bar and sidebar stay up even
-   with no agent attached (and while a new one is creating), so the menu always
-   works. **Ctrl-C** is the agent's own interrupt while you're typing into it, but
+   sidebar/modal and return to the agent. **Two-pane focus:** press **Tab** to
+   hand the keyboard to the agent pane *without* closing the sidebar — it stays
+   visible (dimmed, the selection shown bold) while you type, and Tab again hands
+   focus back to the sidebar; a `⇥ agent`/`⇥ list` hint in the title shows which
+   way Tab goes. The status bar and sidebar stay up even with no agent attached
+   (and while a new one is creating), so the menu always works. **Ctrl-C** is the
+   agent's own interrupt while you're typing into it (or with the sidebar focus
+   handed to the agent via Tab), but
    from the sidebar, a modal, the idle screen, or mid-create it quits teleport — a
    universal escape hatch that always works, even if a create is wedged. Deleting
    the *current* sandbox hands off to a neighbour; deleting *another* happens in
