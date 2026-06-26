@@ -22,10 +22,10 @@ test('sidebarLines are exactly `width` columns and `height` tall', () => {
   for (const l of lines) assert.equal(width(l), 26);
 });
 
-test('sidebarLines mark the selection and the current sandbox', () => {
+test('sidebarLines mark the selection with a cursor', () => {
   const lines = sidebarLines(items, 1, 26, 8);
-  assert.ok(lines[1].includes('●'), 'row 0 is the current sandbox');
   assert.ok(lines[2].includes('❯'), 'row 1 is selected');
+  assert.ok(!lines.join('').includes('●'), 'no active-sandbox dot');
   assert.ok(lines[0].includes('SANDBOXES'), 'title row');
 });
 

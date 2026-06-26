@@ -78,8 +78,7 @@ export function sidebarLines(
     }
     const it = items[idx];
     const cursor = idx === selected ? '❯' : ' ';
-    const marker = it.current ? '●' : ' ';
-    lines.push(padTrunc(`${cursor}${marker} ${it.id.slice(0, 8)} ${it.agent}`, inner) + SEP);
+    lines.push(padTrunc(`${cursor} ${it.id.slice(0, 8)}  ${it.agent}`, inner) + SEP);
   }
   for (let i = 0; i < fc; i++) lines.push(padTrunc(` ${footer[i]}`, inner) + SEP);
   return lines.slice(0, height);
@@ -113,7 +112,7 @@ export function renderSidebar(
     const idx = start + (i - 1);
     const it = items[idx];
     if (idx === selected && it) return `${ESC}[7m${body}${ESC}[27m${sep}`;
-    if (it && !it.current) return `${ESC}[2m${body}${ESC}[22m${sep}`;
+    if (it) return `${ESC}[2m${body}${ESC}[22m${sep}`; // non-selected rows are dimmed
     return body + sep;
   });
 }
