@@ -3,6 +3,27 @@
   "version": "0.1.0",
   "description": "Run sandboxed AI coding agents in fresh Daytona sandboxes, with credential import, auto git push, and detach/reconnect.",
   "type": "module",
+  "license": "MIT",
+  "author": "James Murdza <jamesmurdza@gmail.com>",
+  "homepage": "https://github.com/jamesmurdza/sbx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jamesmurdza/sbx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jamesmurdza/sbx/issues"
+  },
+  "keywords": [
+    "daytona",
+    "ai",
+    "agent",
+    "sandbox",
+    "claude",
+    "codex",
+    "gemini",
+    "cli",
+    "coding-agent"
+  ],
   "bin": {
     "sbx": "./bin/sbx.js"
   },
@@ -15,10 +36,15 @@
     "dev": "tsc -p tsconfig.json --watch",
     "test": "node --test --import tsx ./test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node bin/sbx.js"
+    "start": "node bin/sbx.js",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@daytonaio/sdk": "^0.110.0",
