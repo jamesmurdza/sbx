@@ -41,11 +41,19 @@ test('ls and doctor', () => {
   assert.deepEqual(parseArgs(['doctor']), { type: 'doctor' });
 });
 
-test('stop/rm require an id', () => {
-  assert.deepEqual(parseArgs(['stop', 'abc123']), { type: 'stop', id: 'abc123' });
+test('rm requires an id', () => {
   assert.deepEqual(parseArgs(['rm', 'abc123']), { type: 'rm', id: 'abc123' });
-  assert.equal(parseArgs(['stop']).type, 'error');
   assert.equal(parseArgs(['rm']).type, 'error');
+});
+
+test('stop is no longer a reserved subcommand (autostop handles idling)', () => {
+  // `stop` is now just a command to run in the sandbox, not a reserved verb.
+  assert.deepEqual(parseArgs(['stop', 'abc123']), {
+    type: 'run',
+    command: 'stop',
+    args: ['abc123'],
+    yolo: true,
+  });
 });
 
 test('push id is optional', () => {
