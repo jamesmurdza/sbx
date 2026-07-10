@@ -536,7 +536,15 @@ async function createInSession(session: SbxSession): Promise<Prepared | null> {
   const [cmd, ...args] = command.trim().split(/\s+/);
   try {
     const prep = await prepareNew({ command: cmd, args, yolo: true }, sessionPresent(session));
-    if (prep) prep.spec.openSidebar = true; // created from the sidebar → keep it open
+    if (prep) {
+      // Keep the sidebar open only when there's another sandbox to switch back
+      // to; the very first sandbox (nothing else live) drops straight to its
+      // agent, matching the bare-`sbx` startup behaviour.
+      const others = (await listSessions()).filter(
+        (s) => !DEAD_STATES.has(s.state) && s.id !== prep.spec.sandbox.id,
+      );
+      prep.spec.openSidebar = others.length > 0;
+    }
     return prep;
   } catch (err) {
     session.connecting(`create failed: ${err instanceof Error ? err.message : String(err)}`);
