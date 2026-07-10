@@ -68,14 +68,14 @@ export function layoutBar(left: string, right: string, cols: number): string {
 
 /**
  * Renders the full status-bar line, padded/truncated to `cols`, as black text on
- * a muted green (unless `color` is false). Uses the 256-colour palette's colour
- * 77 (rgb 95,215,95) — greener and less neon than the lighter greens, while
- * still a palette colour rather than a hardcoded RGB. The returned string has no
- * trailing newline; the caller positions it.
+ * a soft green (unless `color` is false). Uses the 256-colour palette's colour
+ * 114 (rgb 135,215,135) — light like the earlier green but a step off neon,
+ * while still a palette colour rather than a hardcoded RGB. The returned string
+ * has no trailing newline; the caller positions it.
  */
 export function renderStatusBar(info: BarInfo, cols: number, opts: { color?: boolean } = {}): string {
   const { left, right } = statusSegments(info);
   const line = layoutBar(left, right, cols);
   if (opts.color === false) return line;
-  return `${ESC}[30;48;5;77m${line}${ESC}[0m`;
+  return `${ESC}[30;48;5;114m${line}${ESC}[0m`;
 }
