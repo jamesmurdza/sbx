@@ -93,7 +93,11 @@ export function sidebarLines(
     }
     const it = items[idx];
     const cursor = idx === selected ? '❯' : ' ';
-    lines.push(padTrunc(`${cursor} ${it.id.slice(0, 8)}  ${it.agent}`, inner) + SEP);
+    // Show only the top-level command (first token), not its arguments — e.g.
+    // "claude", not "claude --dangerously-skip-permissions". The full command
+    // is still available in the info panel (press i).
+    const command = it.agent.split(/\s+/)[0] || it.agent;
+    lines.push(padTrunc(`${cursor} ${it.id.slice(0, 8)}  ${command}`, inner) + SEP);
   }
   for (let i = 0; i < fc; i++) lines.push(padTrunc(` ${footer[i]}`, inner) + SEP);
   return lines.slice(0, height);

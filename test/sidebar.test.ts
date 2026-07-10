@@ -29,6 +29,15 @@ test('sidebarLines mark the selection with a cursor', () => {
   assert.ok(lines[0].includes('SANDBOXES'), 'title row');
 });
 
+test('sidebarLines show only the top-level command, not its arguments', () => {
+  const withArgs: SidebarItem[] = [
+    { id: '6c73784c', agent: 'claude --dangerously-skip-permissions', state: 'started', current: true },
+  ];
+  const lines = sidebarLines(withArgs, 0, 40, 4);
+  assert.ok(lines[1].includes('claude'), 'shows the command');
+  assert.ok(!lines[1].includes('--dangerously'), 'hides the arguments');
+});
+
 test('sidebarLines pad empty rows when there are few items', () => {
   const lines = sidebarLines(items.slice(0, 1), 0, 26, 6);
   assert.equal(lines.length, 6);
