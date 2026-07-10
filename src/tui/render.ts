@@ -68,6 +68,35 @@ export function blankFrame(cols: number, rows: number): Frame {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ...BLANK })));
 }
 
+/**
+ * Dims one cell's SGR by forcing the "faint" attribute (2) and dropping bold (1),
+ * which contradicts faint on most terminals. A default-styled cell (empty SGR,
+ * typically a blank space) is left untouched so blanks don't churn the diff.
+ *
+ * `cellSgr` always emits the single-number attribute params first, then the
+ * `38;…`/`48;…` colour runs. Only the attribute prefix is rewritten, so a colour
+ * *component* value that happens to be 1 or 2 (e.g. palette `38;5;1`) is untouched.
+ */
+function fadeSgr(sgr: string): string {
+  if (!sgr) return '';
+  const params = sgr.split(';');
+  let i = 0;
+  const attrs: string[] = [];
+  while (i < params.length && params[i] !== '38' && params[i] !== '48') attrs.push(params[i++]);
+  const kept = attrs.filter((p) => p !== '1' && p !== '2');
+  kept.unshift('2'); // faint, applied once, ahead of the surviving attributes + colours
+  return [...kept, ...params.slice(i)].join(';');
+}
+
+/**
+ * Returns a faded copy of `frame`: every styled cell is dimmed (SGR faint) so the
+ * pane visually recedes when it's the inactive one. Foreground-only — SGR faint
+ * doesn't touch background colours, so bg-filled regions stay as-is.
+ */
+export function fadeFrame(frame: Frame): Frame {
+  return frame.map((row) => row.map((cell) => ({ ch: cell.ch, sgr: fadeSgr(cell.sgr) })));
+}
+
 /** A blank frame with `text` centered (dimmed) — used for "connecting…" notices. */
 export function placeholderFrame(text: string, cols: number, rows: number): Frame {
   const frame = blankFrame(cols, rows);

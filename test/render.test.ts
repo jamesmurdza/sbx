@@ -7,12 +7,35 @@ import {
   renderFrameDiff,
   blankFrame,
   frameFromBuffer,
+  fadeFrame,
   cellSgr,
   type Frame,
   type Cell,
 } from '../src/tui/render.ts';
 
 const cells = (s: string, sgr = ''): Cell[] => [...s].map((ch) => ({ ch, sgr }));
+
+test('fadeFrame forces faint, drops bold, and leaves default cells untouched', () => {
+  const frame: Frame = [
+    [
+      { ch: 'a', sgr: '' }, // default/blank — untouched so blanks don't churn the diff
+      { ch: 'b', sgr: '1' }, // bold — bold dropped, faint added
+      { ch: 'c', sgr: '38;5;4' }, // coloured — faint prepended
+      { ch: 'd', sgr: '2' }, // already faint — stays a single faint
+      { ch: 'e', sgr: '1;4;38;5;4' }, // bold+underline+colour — bold gone, underline/colour kept
+      { ch: 'f', sgr: '38;5;1' }, // palette colour whose value is 1 — must NOT be stripped
+      { ch: 'g', sgr: '1;38;2;1;2;3' }, // bold + RGB(1,2,3) — bold gone, RGB components intact
+    ],
+  ];
+  const faded = fadeFrame(frame);
+  assert.deepEqual(
+    faded[0].map((c) => c.sgr),
+    ['', '2', '2;38;5;4', '2', '2;4;38;5;4', '2;38;5;1', '2;38;2;1;2;3'],
+  );
+  // Characters are preserved and the input frame is not mutated.
+  assert.equal(faded[0].map((c) => c.ch).join(''), 'abcdefg');
+  assert.equal(frame[0][1].sgr, '1');
+});
 
 test('emitRow emits SGR only when the style changes, resetting at both ends', () => {
   const row: Cell[] = [

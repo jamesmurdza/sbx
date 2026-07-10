@@ -19,6 +19,7 @@ import {
   frameFromBuffer,
   blankFrame,
   placeholderFrame,
+  fadeFrame,
   type Frame,
 } from './render.js';
 import { renderStatusBar, type BarInfo } from './statusbar.js';
@@ -619,11 +620,16 @@ export class Compositor {
     const w = this.sidebarWidth();
     const agentRows = Math.max(1, this.rows - 1);
     const buf = this.term.buffer.active;
-    const frame = this.modal
+    let frame = this.modal
       ? modalFrame(this.modal, this.agentCols(), agentRows)
       : this.agentPlaceholder !== null
         ? placeholderFrame(this.agentPlaceholder, this.agentCols(), agentRows)
         : frameFromBuffer(buf as never, buf.baseY, this.agentCols(), agentRows);
+
+    // Fade the content pane while the sidebar holds focus, so the inactive pane
+    // recedes — mirroring the sidebar dimming itself when the agent has focus. A
+    // modal owns focus in the agent area, so leave it (and its own dimming) alone.
+    if (this.sidebarOpen && this.sidebarFocused && !this.modal) frame = fadeFrame(frame);
 
     // Agent screen, painted to the right of the sidebar band.
     let out = renderFrameDiff(this.prevFrame, frame, 1, w + 1);
