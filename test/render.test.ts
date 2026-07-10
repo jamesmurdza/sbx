@@ -8,6 +8,7 @@ import {
   blankFrame,
   frameFromBuffer,
   fadeFrame,
+  fadeAnsiLine,
   rgbFromOsc,
   cellSgr,
   type Frame,
@@ -47,6 +48,21 @@ test('fadeFrame blends cell colours halfway toward the background', () => {
   // Characters preserved; input frame not mutated.
   assert.equal(faded[0].map((c) => c.ch).join(''), ' xcduz ');
   assert.equal(frame[0][3].sgr, '1;38;2;100;40;20');
+});
+
+test('fadeAnsiLine blends styled runs toward bg, dropping bold/inverse', () => {
+  const colors: FadeColors = { fg: [200, 200, 200], bg: [0, 0, 0] };
+  // Bold title then a faint separator → both become the same faded grey (no bold).
+  assert.equal(
+    fadeAnsiLine('\x1b[1mSANDBOXES\x1b[22m\x1b[2m│\x1b[22m', colors, 0.5),
+    '\x1b[0m\x1b[38;2;100;100;100mSANDBOXES\x1b[0m\x1b[38;2;100;100;100m│\x1b[0m',
+  );
+  // Inverse selection → a faded bar (bg-coloured text on faded-fg background);
+  // trailing blank spaces with no background are left untouched.
+  assert.equal(
+    fadeAnsiLine('\x1b[7m❯ item\x1b[27m  \x1b[0m', colors, 0.5),
+    '\x1b[0m\x1b[38;2;0;0;0;48;2;100;100;100m❯ item\x1b[0m  \x1b[0m',
+  );
 });
 
 test('rgbFromOsc parses OSC 10/11 colour replies at any hex width', () => {

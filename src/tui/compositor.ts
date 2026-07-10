@@ -20,6 +20,7 @@ import {
   blankFrame,
   placeholderFrame,
   fadeFrame,
+  fadeAnsiLine,
   rgbFromOsc,
   type Frame,
   type FadeColors,
@@ -652,10 +653,14 @@ export class Compositor {
       // → (hand off to the agent) when the sidebar is focused, ← (back to the list)
       // when the agent is.
       const tabHint = this.sidebarFocused ? '→' : '←';
-      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
-        focused: this.sidebarFocused,
+      // Always render the sidebar in its active (focused) form, then — when the
+      // agent holds focus — fade the whole band toward the background, so it
+      // recedes exactly like the content pane does (rather than via bold/faint).
+      let lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
+        focused: true,
         tabHint,
       });
+      if (!this.sidebarFocused) lines = lines.map((l) => fadeAnsiLine(l, this.fadeColors));
       for (let r = 0; r < lines.length; r++) {
         if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
         out += `${ESC}[${r + 1};1H` + lines[r];
