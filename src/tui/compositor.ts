@@ -20,7 +20,9 @@ import {
   blankFrame,
   placeholderFrame,
   fadeFrame,
+  rgbFromOsc,
   type Frame,
+  type FadeColors,
 } from './render.js';
 import { renderStatusBar, type BarInfo } from './statusbar.js';
 import {
@@ -105,6 +107,9 @@ export class Compositor {
   private agentPlaceholder: string | null = null;
   /** Real-terminal colour replies for the agent's OSC 10/11 queries (if detected). */
   private colorReplies: { osc10: string; osc11: string } | null = null;
+  /** Terminal fg/bg used to blend the faded (inactive) pane; defaults to a dark
+   * theme until the real colours are detected via setColorReplies. */
+  private fadeColors: FadeColors = { fg: [229, 229, 229], bg: [0, 0, 0] };
 
   private sidebarOpen = false;
   /** When the sidebar is open, whether it (vs. the agent pane) has keyboard focus. */
@@ -182,6 +187,12 @@ export class Compositor {
    */
   setColorReplies(replies: { osc10: string; osc11: string }): void {
     this.colorReplies = replies;
+    // Learn the real terminal fg/bg so the inactive-pane fade blends toward them.
+    const fg = rgbFromOsc(replies.osc10);
+    const bg = rgbFromOsc(replies.osc11);
+    if (fg) this.fadeColors.fg = fg;
+    if (bg) this.fadeColors.bg = bg;
+    this.scheduleRender();
   }
 
   /** Replies to OSC 10/11 (fg/bg) colour queries the agent emits, if we know them. */
@@ -629,7 +640,7 @@ export class Compositor {
     // Fade the content pane while the sidebar holds focus, so the inactive pane
     // recedes — mirroring the sidebar dimming itself when the agent has focus. A
     // modal owns focus in the agent area, so leave it (and its own dimming) alone.
-    if (this.sidebarOpen && this.sidebarFocused && !this.modal) frame = fadeFrame(frame);
+    if (this.sidebarOpen && this.sidebarFocused && !this.modal) frame = fadeFrame(frame, this.fadeColors);
 
     // Agent screen, painted to the right of the sidebar band.
     let out = renderFrameDiff(this.prevFrame, frame, 1, w + 1);

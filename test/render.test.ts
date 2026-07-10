@@ -8,33 +8,52 @@ import {
   blankFrame,
   frameFromBuffer,
   fadeFrame,
+  rgbFromOsc,
   cellSgr,
   type Frame,
   type Cell,
+  type FadeColors,
 } from '../src/tui/render.ts';
 
 const cells = (s: string, sgr = ''): Cell[] => [...s].map((ch) => ({ ch, sgr }));
 
-test('fadeFrame forces faint, drops bold, and leaves default cells untouched', () => {
+test('fadeFrame blends cell colours halfway toward the background', () => {
+  // fg light grey, bg black, 50% blend → every channel halves for the fg blend.
+  const colors: FadeColors = { fg: [200, 200, 200], bg: [0, 0, 0] };
   const frame: Frame = [
     [
-      { ch: 'a', sgr: '' }, // default/blank — untouched so blanks don't churn the diff
-      { ch: 'b', sgr: '1' }, // bold — bold dropped, faint added
-      { ch: 'c', sgr: '38;5;4' }, // coloured — faint prepended
-      { ch: 'd', sgr: '2' }, // already faint — stays a single faint
-      { ch: 'e', sgr: '1;4;38;5;4' }, // bold+underline+colour — bold gone, underline/colour kept
-      { ch: 'f', sgr: '38;5;1' }, // palette colour whose value is 1 — must NOT be stripped
-      { ch: 'g', sgr: '1;38;2;1;2;3' }, // bold + RGB(1,2,3) — bold gone, RGB components intact
+      { ch: ' ', sgr: '' }, // blank space, default bg → left untouched (no diff churn)
+      { ch: 'x', sgr: '' }, // default fg glyph → fades to half the fg
+      { ch: 'c', sgr: '38;5;1' }, // palette red (128,0,0) → (64,0,0)
+      { ch: 'd', sgr: '1;38;2;100;40;20' }, // bold dropped; RGB fg halved
+      { ch: 'u', sgr: '4;38;5;1' }, // underline kept; palette red halved
+      { ch: 'z', sgr: '7;38;2;200;0;0' }, // inverse: shows red bg / default(black) fg
+      { ch: ' ', sgr: '48;2;80;80;80' }, // bg-filled space → fades fg + bg, not skipped
     ],
   ];
-  const faded = fadeFrame(frame);
+  const faded = fadeFrame(frame, colors, 0.5);
   assert.deepEqual(
     faded[0].map((c) => c.sgr),
-    ['', '2', '2;38;5;4', '2', '2;4;38;5;4', '2;38;5;1', '2;38;2;1;2;3'],
+    [
+      '',
+      '38;2;100;100;100',
+      '38;2;64;0;0',
+      '38;2;50;20;10',
+      '4;38;2;64;0;0',
+      '38;2;0;0;0;48;2;100;0;0',
+      '38;2;100;100;100;48;2;40;40;40',
+    ],
   );
-  // Characters are preserved and the input frame is not mutated.
-  assert.equal(faded[0].map((c) => c.ch).join(''), 'abcdefg');
-  assert.equal(frame[0][1].sgr, '1');
+  // Characters preserved; input frame not mutated.
+  assert.equal(faded[0].map((c) => c.ch).join(''), ' xcduz ');
+  assert.equal(frame[0][3].sgr, '1;38;2;100;40;20');
+});
+
+test('rgbFromOsc parses OSC 10/11 colour replies at any hex width', () => {
+  assert.deepEqual(rgbFromOsc('\x1b]11;rgb:0000/0000/0000\x07'), [0, 0, 0]);
+  assert.deepEqual(rgbFromOsc('\x1b]10;rgb:ffff/ffff/ffff\x07'), [255, 255, 255]);
+  assert.deepEqual(rgbFromOsc('\x1b]11;rgb:ff/80/00\x07'), [255, 128, 0]);
+  assert.equal(rgbFromOsc('not a colour'), null);
 });
 
 test('emitRow emits SGR only when the style changes, resetting at both ends', () => {

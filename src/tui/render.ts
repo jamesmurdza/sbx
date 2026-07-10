@@ -68,33 +68,123 @@ export function blankFrame(cols: number, rows: number): Frame {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ...BLANK })));
 }
 
-/**
- * Dims one cell's SGR by forcing the "faint" attribute (2) and dropping bold (1),
- * which contradicts faint on most terminals. A default-styled cell (empty SGR,
- * typically a blank space) is left untouched so blanks don't churn the diff.
- *
- * `cellSgr` always emits the single-number attribute params first, then the
- * `38;…`/`48;…` colour runs. Only the attribute prefix is rewritten, so a colour
- * *component* value that happens to be 1 or 2 (e.g. palette `38;5;1`) is untouched.
- */
-function fadeSgr(sgr: string): string {
-  if (!sgr) return '';
-  const params = sgr.split(';');
-  let i = 0;
-  const attrs: string[] = [];
-  while (i < params.length && params[i] !== '38' && params[i] !== '48') attrs.push(params[i++]);
-  const kept = attrs.filter((p) => p !== '1' && p !== '2');
-  kept.unshift('2'); // faint, applied once, ahead of the surviving attributes + colours
-  return [...kept, ...params.slice(i)].join(';');
+/** An 8-bit-per-channel RGB colour. */
+export type RGB = [number, number, number];
+
+/** The terminal's foreground/background colours, used to blend a faded pane. */
+export interface FadeColors {
+  fg: RGB;
+  bg: RGB;
+}
+
+/** How far each cell is pulled toward the background when faded (0 = none, 1 = gone). */
+const FADE_AMOUNT = 0.55;
+
+/** The xterm palette's first 16 (system) colours as RGB. */
+const SYSTEM_COLORS: RGB[] = [
+  [0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0], [0, 0, 128], [128, 0, 128], [0, 128, 128], [192, 192, 192],
+  [128, 128, 128], [255, 0, 0], [0, 255, 0], [255, 255, 0], [0, 0, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
+];
+const CUBE_STEPS = [0, 95, 135, 175, 215, 255];
+
+/** Resolves an xterm 256-colour palette index to RGB. */
+function paletteRgb(n: number): RGB {
+  if (n < 16) return SYSTEM_COLORS[n];
+  if (n >= 232) {
+    const v = 8 + 10 * (n - 232); // 24-step greyscale ramp
+    return [v, v, v];
+  }
+  const i = n - 16; // 6×6×6 colour cube
+  return [CUBE_STEPS[Math.floor(i / 36) % 6], CUBE_STEPS[Math.floor(i / 6) % 6], CUBE_STEPS[i % 6]];
+}
+
+/** Linearly blends `c` toward `bg` by `amount` (0 keeps `c`, 1 becomes `bg`). */
+function towardBg(c: RGB, bg: RGB, amount: number): RGB {
+  return [
+    Math.round(c[0] + (bg[0] - c[0]) * amount),
+    Math.round(c[1] + (bg[1] - c[1]) * amount),
+    Math.round(c[2] + (bg[2] - c[2]) * amount),
+  ];
 }
 
 /**
- * Returns a faded copy of `frame`: every styled cell is dimmed (SGR faint) so the
- * pane visually recedes when it's the inactive one. Foreground-only — SGR faint
- * doesn't touch background colours, so bg-filled regions stay as-is.
+ * Rewrites one cell's SGR so its colours are blended toward the terminal
+ * background — a uniform, perceptually even fade (unlike SGR "faint", which only
+ * nudges the foreground by a terminal-defined amount). `cellSgr` emits the
+ * single-number attribute params first, then `38;…`/`48;…` colour runs, so we
+ * parse that shape directly.
+ *
+ * Handles the default foreground (no explicit fg → the terminal's fg), palette
+ * and truecolour, and inverse video (fg/bg swapped before blending). Bold/faint
+ * are dropped so they can't re-brighten the result. A blank cell with no
+ * background is left untouched so empty space doesn't churn the diff.
  */
-export function fadeFrame(frame: Frame): Frame {
-  return frame.map((row) => row.map((cell) => ({ ch: cell.ch, sgr: fadeSgr(cell.sgr) })));
+function fadeSgr(sgr: string, ch: string, colors: FadeColors, amount: number): string {
+  const params = sgr ? sgr.split(';') : [];
+  const attrs: string[] = [];
+  let cellFg: RGB | null = null;
+  let cellBg: RGB | null = null;
+  const num = (s: string | undefined): number => (s ? parseInt(s, 10) || 0 : 0);
+
+  for (let i = 0; i < params.length; ) {
+    const p = params[i];
+    if (p === '38' || p === '48') {
+      const target: 'fg' | 'bg' = p === '38' ? 'fg' : 'bg';
+      if (params[i + 1] === '2') {
+        const rgb: RGB = [num(params[i + 2]), num(params[i + 3]), num(params[i + 4])];
+        if (target === 'fg') cellFg = rgb;
+        else cellBg = rgb;
+        i += 5;
+      } else if (params[i + 1] === '5') {
+        const rgb = paletteRgb(num(params[i + 2]));
+        if (target === 'fg') cellFg = rgb;
+        else cellBg = rgb;
+        i += 3;
+      } else {
+        i += 1;
+      }
+    } else {
+      attrs.push(p);
+      i += 1;
+    }
+  }
+
+  // Resolve to the colours actually shown, accounting for inverse video.
+  const inverse = attrs.includes('7');
+  const dispFg = inverse ? cellBg ?? colors.bg : cellFg ?? colors.fg;
+  const dispBg = inverse ? cellFg ?? colors.fg : cellBg; // null → keep the default background
+
+  // A blank cell with no background paints nothing — leave it untouched.
+  if ((ch === ' ' || ch === '') && dispBg === null) return '';
+
+  const outFg = towardBg(dispFg, colors.bg, amount);
+  // Keep style attributes (italic/underline/…); drop bold(1)+faint(2) so they
+  // can't re-brighten, and inverse(7) since we resolved it into explicit colours.
+  const keep = attrs.filter((p) => p !== '1' && p !== '2' && p !== '7');
+  const out = [...keep, '38', '2', ...outFg.map(String)];
+  if (dispBg !== null) out.push('48', '2', ...towardBg(dispBg, colors.bg, amount).map(String));
+  return out.join(';');
+}
+
+/**
+ * Returns a faded copy of `frame`: every cell's colours are blended toward the
+ * terminal background so the pane recedes evenly when it's the inactive one.
+ * Unlike SGR faint this fades foreground *and* background uniformly.
+ */
+export function fadeFrame(frame: Frame, colors: FadeColors, amount = FADE_AMOUNT): Frame {
+  return frame.map((row) => row.map((cell) => ({ ch: cell.ch, sgr: fadeSgr(cell.sgr, cell.ch, colors, amount) })));
+}
+
+/**
+ * Parses an OSC 10/11 colour reply (`…rgb:RRRR/GGGG/BBBB…`, 1–4 hex digits per
+ * channel) into RGB, or null if it doesn't match. Used to learn the real
+ * terminal fg/bg for the fade blend.
+ */
+export function rgbFromOsc(osc: string): RGB | null {
+  const m = /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/.exec(osc);
+  if (!m) return null;
+  const scale = (h: string): number => Math.round((parseInt(h, 16) / (16 ** h.length - 1)) * 255);
+  return [scale(m[1]), scale(m[2]), scale(m[3])];
 }
 
 /** A blank frame with `text` centered (dimmed) — used for "connecting…" notices. */
