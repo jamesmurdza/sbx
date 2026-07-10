@@ -126,7 +126,9 @@ export function renderSidebar(
     const body = line.slice(0, -1); // strip the separator char before styling
     const sep = `${ESC}[2m${SEP}${ESC}[22m`;
     if (i === 0) return `${ESC}[${focused ? 1 : 2}m${body}${ESC}[22m${sep}`;
-    if (fc > 0 && i >= firstFooter) return `${ESC}[2m${body}${ESC}[22m${sep}`;
+    // Footer legend: the terminal's dark grey (palette colour 8) so the key
+    // hints sit back further than the faint list rows.
+    if (fc > 0 && i >= firstFooter) return `${ESC}[38;5;8m${body}${ESC}[39m${sep}`;
     const idx = start + (i - 1);
     const it = items[idx];
     if (idx === selected && it) {
