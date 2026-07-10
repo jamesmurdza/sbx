@@ -4,7 +4,6 @@
  *   sbx                 -> list/reconnect picker
  *   sbx <cmd> [args...] -> create-or-reconnect and run <cmd>
  *   sbx ls              -> non-interactive sandbox list
- *   sbx stop <id>       -> stop a sandbox
  *   sbx rm <id>         -> delete a sandbox
  *   sbx push [<id>]     -> push pending commits now
  *   sbx doctor          -> preflight diagnostics
@@ -16,14 +15,13 @@ export type Command =
   | { type: 'ls' }
   | { type: 'doctor' }
   | { type: 'help' }
-  | { type: 'stop'; id: string }
   | { type: 'rm'; id: string }
   | { type: 'push'; id?: string }
   | { type: 'run'; command: string; args: string[]; yolo: boolean };
 
 export type ParseResult = Command | { type: 'error'; message: string };
 
-const RESERVED = new Set(['ls', 'stop', 'rm', 'push', 'doctor', 'help']);
+const RESERVED = new Set(['ls', 'rm', 'push', 'doctor', 'help']);
 
 export function parseArgs(argv: string[]): ParseResult {
   // Peel leading sbx options before the command. Permission-skipping
@@ -56,10 +54,10 @@ export function parseArgs(argv: string[]): ParseResult {
   if (first === 'ls') return { type: 'ls' };
   if (first === 'doctor') return { type: 'doctor' };
 
-  if (first === 'stop' || first === 'rm') {
+  if (first === 'rm') {
     const id = rest[0];
-    if (!id) return { type: 'error', message: `\`sbx ${first}\` requires a sandbox id.` };
-    return { type: first, id };
+    if (!id) return { type: 'error', message: '`sbx rm` requires a sandbox id.' };
+    return { type: 'rm', id };
   }
 
   if (first === 'push') {
@@ -80,7 +78,6 @@ Usage:
   sbx [--safe] <command> [args...]  Create (or reconnect to) a sandbox and run <command>
   sbx                       List open sandboxes and reconnect
   sbx ls                    List open sandboxes (non-interactive)
-  sbx stop <id>             Stop a sandbox
   sbx rm <id>               Delete a sandbox
   sbx push [<id>]           Push pending commits for a sandbox now
   sbx doctor                Run preflight diagnostics

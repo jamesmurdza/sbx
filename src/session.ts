@@ -261,7 +261,11 @@ export class SbxSession {
     if (!this.started) await this.startInteractive(compositor);
     compositor.setBar(IDLE_BAR);
     compositor.resetAgent(message);
-    compositor.openSidebar();
+    // When a 'new' is already queued (e.g. bare `sbx` with no sandboxes),
+    // idle is only booting the UI before the new-sandbox picker takes over —
+    // don't flash the sidebar open; the first sandbox drops straight to its
+    // agent. Genuinely idle (nothing queued) still shows the menu.
+    if (this.pendingOutcome !== 'new') compositor.openSidebar();
     void this.refresh();
     return this.waitOutcome(null);
   }

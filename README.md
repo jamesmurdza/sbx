@@ -114,7 +114,6 @@ nothing to import for them.
 sbx <agent>        Create a sandbox running <agent> directly (e.g. sbx claude)
 sbx --safe <agent> ...with the agent's normal permission prompts kept
 sbx ls             List sandboxes
-sbx stop <id>      Stop a sandbox
 sbx rm <id>        Delete a sandbox
 sbx doctor         Check your setup
 sbx help           Show help

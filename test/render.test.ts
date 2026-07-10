@@ -7,12 +7,70 @@ import {
   renderFrameDiff,
   blankFrame,
   frameFromBuffer,
+  fadeFrame,
+  fadeAnsiLine,
+  rgbFromOsc,
   cellSgr,
   type Frame,
   type Cell,
+  type FadeColors,
 } from '../src/tui/render.ts';
 
 const cells = (s: string, sgr = ''): Cell[] => [...s].map((ch) => ({ ch, sgr }));
+
+test('fadeFrame blends cell colours halfway toward the background', () => {
+  // fg light grey, bg black, 50% blend → every channel halves for the fg blend.
+  const colors: FadeColors = { fg: [200, 200, 200], bg: [0, 0, 0] };
+  const frame: Frame = [
+    [
+      { ch: ' ', sgr: '' }, // blank space, default bg → left untouched (no diff churn)
+      { ch: 'x', sgr: '' }, // default fg glyph → fades to half the fg
+      { ch: 'c', sgr: '38;5;1' }, // palette red (128,0,0) → (64,0,0)
+      { ch: 'd', sgr: '1;38;2;100;40;20' }, // bold dropped; RGB fg halved
+      { ch: 'u', sgr: '4;38;5;1' }, // underline kept; palette red halved
+      { ch: 'z', sgr: '7;38;2;200;0;0' }, // inverse: shows red bg / default(black) fg
+      { ch: ' ', sgr: '48;2;80;80;80' }, // bg-filled space → fades fg + bg, not skipped
+    ],
+  ];
+  const faded = fadeFrame(frame, colors, 0.5);
+  assert.deepEqual(
+    faded[0].map((c) => c.sgr),
+    [
+      '',
+      '38;2;100;100;100',
+      '38;2;64;0;0',
+      '38;2;50;20;10',
+      '4;38;2;64;0;0',
+      '38;2;0;0;0;48;2;100;0;0',
+      '38;2;100;100;100;48;2;40;40;40',
+    ],
+  );
+  // Characters preserved; input frame not mutated.
+  assert.equal(faded[0].map((c) => c.ch).join(''), ' xcduz ');
+  assert.equal(frame[0][3].sgr, '1;38;2;100;40;20');
+});
+
+test('fadeAnsiLine blends styled runs toward bg, dropping bold/inverse', () => {
+  const colors: FadeColors = { fg: [200, 200, 200], bg: [0, 0, 0] };
+  // Bold title then a faint separator → both become the same faded grey (no bold).
+  assert.equal(
+    fadeAnsiLine('\x1b[1mSANDBOXES\x1b[22m\x1b[2m│\x1b[22m', colors, 0.5),
+    '\x1b[0m\x1b[38;2;100;100;100mSANDBOXES\x1b[0m\x1b[38;2;100;100;100m│\x1b[0m',
+  );
+  // Inverse selection → a faded bar (bg-coloured text on faded-fg background);
+  // trailing blank spaces with no background are left untouched.
+  assert.equal(
+    fadeAnsiLine('\x1b[7m❯ item\x1b[27m  \x1b[0m', colors, 0.5),
+    '\x1b[0m\x1b[38;2;0;0;0;48;2;100;100;100m❯ item\x1b[0m  \x1b[0m',
+  );
+});
+
+test('rgbFromOsc parses OSC 10/11 colour replies at any hex width', () => {
+  assert.deepEqual(rgbFromOsc('\x1b]11;rgb:0000/0000/0000\x07'), [0, 0, 0]);
+  assert.deepEqual(rgbFromOsc('\x1b]10;rgb:ffff/ffff/ffff\x07'), [255, 255, 255]);
+  assert.deepEqual(rgbFromOsc('\x1b]11;rgb:ff/80/00\x07'), [255, 128, 0]);
+  assert.equal(rgbFromOsc('not a colour'), null);
+});
 
 test('emitRow emits SGR only when the style changes, resetting at both ends', () => {
   const row: Cell[] = [

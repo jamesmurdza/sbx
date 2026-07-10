@@ -19,7 +19,11 @@ import {
   frameFromBuffer,
   blankFrame,
   placeholderFrame,
+  fadeFrame,
+  fadeAnsiLine,
+  rgbFromOsc,
   type Frame,
+  type FadeColors,
 } from './render.js';
 import { renderStatusBar, type BarInfo } from './statusbar.js';
 import {
@@ -104,6 +108,9 @@ export class Compositor {
   private agentPlaceholder: string | null = null;
   /** Real-terminal colour replies for the agent's OSC 10/11 queries (if detected). */
   private colorReplies: { osc10: string; osc11: string } | null = null;
+  /** Terminal fg/bg used to blend the faded (inactive) pane; defaults to a dark
+   * theme until the real colours are detected via setColorReplies. */
+  private fadeColors: FadeColors = { fg: [229, 229, 229], bg: [0, 0, 0] };
 
   private sidebarOpen = false;
   /** When the sidebar is open, whether it (vs. the agent pane) has keyboard focus. */
@@ -181,6 +188,12 @@ export class Compositor {
    */
   setColorReplies(replies: { osc10: string; osc11: string }): void {
     this.colorReplies = replies;
+    // Learn the real terminal fg/bg so the inactive-pane fade blends toward them.
+    const fg = rgbFromOsc(replies.osc10);
+    const bg = rgbFromOsc(replies.osc11);
+    if (fg) this.fadeColors.fg = fg;
+    if (bg) this.fadeColors.bg = bg;
+    this.scheduleRender();
   }
 
   /** Replies to OSC 10/11 (fg/bg) colour queries the agent emits, if we know them. */
@@ -619,11 +632,16 @@ export class Compositor {
     const w = this.sidebarWidth();
     const agentRows = Math.max(1, this.rows - 1);
     const buf = this.term.buffer.active;
-    const frame = this.modal
+    let frame = this.modal
       ? modalFrame(this.modal, this.agentCols(), agentRows)
       : this.agentPlaceholder !== null
         ? placeholderFrame(this.agentPlaceholder, this.agentCols(), agentRows)
         : frameFromBuffer(buf as never, buf.baseY, this.agentCols(), agentRows);
+
+    // Fade the content pane while the sidebar holds focus, so the inactive pane
+    // recedes — mirroring the sidebar dimming itself when the agent has focus. A
+    // modal owns focus in the agent area, so leave it (and its own dimming) alone.
+    if (this.sidebarOpen && this.sidebarFocused && !this.modal) frame = fadeFrame(frame, this.fadeColors);
 
     // Agent screen, painted to the right of the sidebar band.
     let out = renderFrameDiff(this.prevFrame, frame, 1, w + 1);
@@ -635,10 +653,14 @@ export class Compositor {
       // → (hand off to the agent) when the sidebar is focused, ← (back to the list)
       // when the agent is.
       const tabHint = this.sidebarFocused ? '→' : '←';
-      const lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
-        focused: this.sidebarFocused,
+      // Always render the sidebar in its active (focused) form, then — when the
+      // agent holds focus — fade the whole band toward the background, so it
+      // recedes exactly like the content pane does (rather than via bold/faint).
+      let lines = renderSidebar(this.sidebarItems, this.sidebarSelected, w, agentRows, this.sidebarFooter(), {
+        focused: true,
         tabHint,
       });
+      if (!this.sidebarFocused) lines = lines.map((l) => fadeAnsiLine(l, this.fadeColors));
       for (let r = 0; r < lines.length; r++) {
         if (this.prevSidebar && this.prevSidebar[r] === lines[r]) continue;
         out += `${ESC}[${r + 1};1H` + lines[r];

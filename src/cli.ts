@@ -45,13 +45,6 @@ async function listCommand(): Promise<number> {
   return 0;
 }
 
-async function stopCommand(id: string): Promise<number> {
-  const s = await getSession(id);
-  await s.sandbox.stop();
-  out(`Stopped ${id}.`);
-  return 0;
-}
-
 async function rmCommand(id: string): Promise<number> {
   const s = await getSession(id);
   await s.sandbox.delete();
@@ -77,8 +70,6 @@ async function dispatch(cmd: Command): Promise<number> {
       return listCommand();
     case 'doctor':
       return runDoctor(process.cwd());
-    case 'stop':
-      return stopCommand(cmd.id);
     case 'rm':
       return rmCommand(cmd.id);
     case 'push':
