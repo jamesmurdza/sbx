@@ -67,14 +67,15 @@ export function layoutBar(left: string, right: string, cols: number): string {
 }
 
 /**
- * Renders the full status-bar line, padded/truncated to `cols`, in reverse video
- * (unless `color` is false). Reverse video adapts to the terminal theme — a
- * contrasting bar in both light and dark mode — instead of a hardcoded colour.
- * The returned string has no trailing newline; the caller positions it.
+ * Renders the full status-bar line, padded/truncated to `cols`, as black text on
+ * the terminal's green (unless `color` is false). Using the palette's green
+ * (ANSI colour 2) rather than a hardcoded RGB keeps the bar in step with the
+ * terminal theme. The returned string has no trailing newline; the caller
+ * positions it.
  */
 export function renderStatusBar(info: BarInfo, cols: number, opts: { color?: boolean } = {}): string {
   const { left, right } = statusSegments(info);
   const line = layoutBar(left, right, cols);
   if (opts.color === false) return line;
-  return `${ESC}[7m${line}${ESC}[27m`;
+  return `${ESC}[30;42m${line}${ESC}[0m`;
 }
