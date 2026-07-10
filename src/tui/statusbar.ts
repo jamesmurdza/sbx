@@ -68,14 +68,14 @@ export function layoutBar(left: string, right: string, cols: number): string {
 
 /**
  * Renders the full status-bar line, padded/truncated to `cols`, as black text on
- * the terminal's green (unless `color` is false). Using the palette's green
- * (ANSI colour 2) rather than a hardcoded RGB keeps the bar in step with the
- * terminal theme. The returned string has no trailing newline; the caller
- * positions it.
+ * the terminal's bright green (unless `color` is false). Using the palette's
+ * bright green (ANSI colour 10, SGR background 102) rather than a hardcoded RGB
+ * keeps the bar in step with the terminal theme. The returned string has no
+ * trailing newline; the caller positions it.
  */
 export function renderStatusBar(info: BarInfo, cols: number, opts: { color?: boolean } = {}): string {
   const { left, right } = statusSegments(info);
   const line = layoutBar(left, right, cols);
   if (opts.color === false) return line;
-  return `${ESC}[30;42m${line}${ESC}[0m`;
+  return `${ESC}[30;102m${line}${ESC}[0m`;
 }
