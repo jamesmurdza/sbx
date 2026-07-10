@@ -297,9 +297,10 @@ async function prepareClaudeConfig(
 }
 
 /**
- * `sbx` with no args: attach to the most-recent sandbox with the sidebar
- * open as the entry menu, or — when there are none — open the menu idle so it
- * still works (and you can create one).
+ * `sbx` with no args: attach to the most-recent sandbox. With more than one
+ * sandbox the sidebar opens as the entry menu so you can pick; with just one
+ * we drop straight into its agent. When there are none, open the menu idle so
+ * it still works (and you can create one).
  */
 export async function openSandboxes(): Promise<void> {
   const live = (await listSessions()).filter((s) => !DEAD_STATES.has(s.state));
@@ -308,13 +309,16 @@ export async function openSandboxes(): Promise<void> {
     await runSessionLoop(null, true);
     return;
   }
+  // Only greet with the sidebar when there's a choice to make; a lone sandbox
+  // goes straight to its agent (Ctrl-] still opens the menu).
+  const openSidebar = live.length > 1;
   const target = live.find((s) => RUNNING_STATES.has(s.state)) ?? live[0];
   log(`connecting to ${target.id.slice(0, 8)}…`);
   // The chosen sandbox may have been deleted out from under us (container gone).
   // Never crash on that — open the sidebar so the user can pick another or exit.
   let first: Prepared | null = null;
   try {
-    first = await prepareExisting(target, true);
+    first = await prepareExisting(target, openSidebar);
   } catch (err) {
     await runSessionLoop(null, false, `couldn't reach ${target.id.slice(0, 8)} — ${oneLine(err)}`);
     return;
